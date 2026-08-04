@@ -46,34 +46,40 @@ std::optional<Args> parse_args(char argc, char **argv) {
   return sa;
 }
 
-NodeKind node_kind_from_blocktype(MD_BLOCKTYPE type) {
+Node node_from_detail(MD_BLOCKTYPE type, void *detail) {
   switch (type) {
     case MD_BLOCK_DOC:
-      return NodeKind::Doc;
-    case MD_BLOCK_H:
-      return NodeKind::Heading;
+      return Node{.kind = NodeKind::Doc};
+    case MD_BLOCK_H: {
+      MD_BLOCK_H_DETAIL *d = static_cast<MD_BLOCK_H_DETAIL *>(detail);
+      return Node{.kind = NodeKind::Heading,
+                  .aux = static_cast<uint8_t>(d->level)};
+    }
     case MD_BLOCK_QUOTE:
-      return NodeKind::Quote;
+      return Node{.kind = NodeKind::Quote};
     case MD_BLOCK_P:
-      return NodeKind::Para;
+      return Node{.kind = NodeKind::Para};
     default:
       std::cout << "WARNING: Unsupported block type " << type << "\n";
-      return NodeKind::Para;
+      return Node{.kind = NodeKind::Para};
   }
 }
 
 void syd_append_header(const Node &node, std::string &buf,
                        const std::string &src) {
+  auto emit_text = [&]() { buf.append(&src[node.text.off], node.text.len); };
+
   switch (node.kind) {
     case NodeKind::Doc:
       buf.append("<body>\n");
       return;
     case NodeKind::Para:
       buf.append("<p>");
-      buf.append(&src[node.text.off], node.text.len);
+      emit_text();
       return;
     case NodeKind::Heading:
-      buf.append("<h1>\n");
+      buf.append(std::format("<h{}>\n", node.aux));
+      emit_text();
       return;
     default:
       std::cout << "WARNING: Unsupported NodeKind "
@@ -92,7 +98,7 @@ void syd_append_footer(const Node &node, std::string &buf) {
       buf.append("</p>\n");
       return;
     case NodeKind::Heading:
-      buf.append("</h1>\n");
+      buf.append(std::format("</h{}>\n", node.aux));
       return;
     default:
       std::cout << "WARNING: Unsupported NodeKind "
@@ -110,7 +116,7 @@ int syd_enter_block(MD_BLOCKTYPE type, void *detail, void *userdata) {
   state->note.doc.end[state->prev] = nodes.size();
   state->stk.push(nodes.size());
 
-  nodes.push_back(Node{.kind = node_kind_from_blocktype(type)});
+  nodes.push_back(node_from_detail(type, detail));
   end.push_back(0);
 
   state->prev = 0;
@@ -219,6 +225,9 @@ void syd_put(const std::map<std::filesystem::path, Note> &notes,
       return j >= i && j < end[i];
     };
 
+    buf.append(
+        std::format("<html><head><title>{}</title></head>", std::string(rel)));
+
     std::stack<uint32_t> closes{};
     for (uint32_t i = 1; i < note.doc.nodes.size(); ++i) {
       syd_append_header(note.doc.nodes[i], buf, src);
@@ -231,6 +240,8 @@ void syd_put(const std::map<std::filesystem::path, Note> &notes,
         syd_append_footer(note.doc.nodes[j], buf);
       }
     }
+
+    buf.append("</html>");
 
     file << buf;
   }

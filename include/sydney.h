@@ -11,6 +11,8 @@ struct Slice {
 };
 
 struct Node {
+	uint8_t aux;
+
   NodeKind kind;
   Slice text;
 };
