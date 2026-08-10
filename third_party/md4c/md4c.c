@@ -2993,6 +2993,10 @@ md_build_mark_char_map(MD_CTX* ctx)
        (ctx->parser.flags & MD_FLAG_SPOILERS))
         ctx->mark_char_map['|'] = 1;
 
+    /* sny: {{path @ "tag"}} excerpts. */
+    if(ctx->parser.flags & MD_FLAG_EXCERPTS)
+        ctx->mark_char_map['{'] = 1;
+
     if(ctx->parser.flags & MD_FLAG_COLLAPSEWHITESPACE) {
         int i;
 
@@ -3643,6 +3647,25 @@ md_collect_marks(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines, int table_m
 
                 off = tmp;
                 continue;
+            }
+
+            /* sny: {{path @ "tag"}} excerpt. Opaque: the whole construct is
+             * consumed here so no inline processing happens inside it. */
+            if(ch == _T('{')  &&  (ctx->parser.flags & MD_FLAG_EXCERPTS)  &&
+               off+1 < line->end  &&  CH(off+1) == _T('{'))
+            {
+                OFF tmp = off+2;
+
+                while(tmp+1 < line->end  &&  !(CH(tmp) == _T('}') && CH(tmp+1) == _T('}')))
+                    tmp++;
+
+                if(tmp+1 < line->end) {
+                    ADD_MARK(_T('{'), off, off+2, MD_MARK_OPENER | MD_MARK_RESOLVED);
+                    ADD_MARK(_T('}'), tmp, tmp+2, MD_MARK_CLOSER | MD_MARK_RESOLVED);
+                    md_resolve_range(ctx, ctx->n_marks-2, ctx->n_marks-1);
+                    off = tmp+2;
+                    continue;
+                }
             }
 
             /* Turn non-trivial whitespace into single space. */
@@ -4727,6 +4750,65 @@ abort:
     return ret;
 }
 
+/* sny: Split "{{ path @ "tag" }}" contents into its two attributes. */
+static int
+md_enter_leave_span_excerpt(MD_CTX* ctx, int enter, const CHAR* body, SZ body_size)
+{
+    MD_ATTRIBUTE_BUILD path_build = { 0 };
+    MD_ATTRIBUTE_BUILD tag_build = { 0 };
+    MD_SPAN_EXCERPT_DETAIL det;
+    const CHAR* tag = NULL;
+    SZ path_size = body_size;
+    SZ tag_size = 0;
+    SZ i;
+    int ret = 0;
+
+    for(i = 0; i < body_size; i++) {
+        if(body[i] == _T('@')) {
+            SZ j;
+
+            path_size = i;
+
+            for(j = i+1; j < body_size; j++) {
+                if(body[j] == _T('"')) {
+                    SZ k;
+
+                    for(k = j+1; k < body_size; k++) {
+                        if(body[k] == _T('"')) {
+                            tag = body + j + 1;
+                            tag_size = k - j - 1;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    while(path_size > 0  &&  ISWHITESPACE_(body[path_size-1]))
+        path_size--;
+    while(path_size > 0  &&  ISWHITESPACE_(body[0])) {
+        body++;
+        path_size--;
+    }
+
+    memset(&det, 0, sizeof(MD_SPAN_EXCERPT_DETAIL));
+    MD_CHECK(md_build_attribute(ctx, body, path_size, 0, &det.path, &path_build));
+    MD_CHECK(md_build_attribute(ctx, tag, tag_size, 0, &det.tag, &tag_build));
+
+    if(enter)
+        MD_ENTER_SPAN(MD_SPAN_EXCERPT, &det);
+    else
+        MD_LEAVE_SPAN(MD_SPAN_EXCERPT, &det);
+
+abort:
+    md_free_attribute(ctx, &path_build);
+    md_free_attribute(ctx, &tag_build);
+    return ret;
+}
+
 static int
 md_enter_leave_span_wikilink(MD_CTX* ctx, int enter, const CHAR* target, SZ target_size)
 {
@@ -5029,6 +5111,17 @@ md_process_inlines(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines)
                     break;
                 }
 
+                case '{':       /* sny: Excerpt opener. */
+                case '}':       /* sny: Excerpt closer. */
+                {
+                    MD_MARK* opener = ((mark->flags & MD_MARK_OPENER) ? mark : &ctx->marks[mark->prev]);
+                    MD_MARK* closer = &ctx->marks[opener->next];
+
+                    MD_CHECK(md_enter_leave_span_excerpt(ctx, (mark->flags & MD_MARK_OPENER),
+                                STR(opener->end), closer->beg - opener->end));
+                    break;
+                }
+
                 case '&':       /* Entity. */
                     MD_TEXT(MD_TEXT_ENTITY, STR(mark->beg), mark->end - mark->beg);
                     break;
@@ -5308,6 +5401,8 @@ struct MD_CONTAINER_tag {
     unsigned contents_indent;
     OFF block_byte_off;
     OFF task_mark_off;
+    OFF name_off;       /* sny: MD_BLOCK_BLOCK name offset */
+    unsigned name_len;  /* sny: MD_BLOCK_BLOCK name length */
 };
 
 
@@ -5544,6 +5639,8 @@ md_process_all_blocks(MD_CTX* ctx)
 {
     MD_TEXTTYPE adm_substr_types[1] = { MD_TEXT_NORMAL };
     MD_OFFSET adm_substr_offsets[2];
+    MD_TEXTTYPE blk_substr_types[1] = { MD_TEXT_NORMAL };   /* sny */
+    MD_OFFSET blk_substr_offsets[2];                        /* sny */
     int byte_off = 0;
     int ret = 0;
 
@@ -5560,6 +5657,7 @@ md_process_all_blocks(MD_CTX* ctx)
             MD_BLOCK_OL_DETAIL ol;
             MD_BLOCK_LI_DETAIL li;
             MD_BLOCK_ADMONITION_DETAIL adm;
+            MD_BLOCK_BLOCK_DETAIL blk;
         } det;
 
         switch(block->type) {
@@ -5588,6 +5686,16 @@ md_process_all_blocks(MD_CTX* ctx)
                 det.adm.type.size = adm_substr_offsets[1];
                 det.adm.type.substr_types = adm_substr_types;
                 det.adm.type.substr_offsets = adm_substr_offsets;
+                break;
+
+            case MD_BLOCK_BLOCK:    /* sny */
+                blk_substr_offsets[0] = 0;
+                blk_substr_offsets[1] = block->data;
+
+                det.blk.name.text = (block->data > 0) ? STR(block->n_lines) : _T("");
+                det.blk.name.size = block->data;
+                det.blk.name.substr_types = blk_substr_types;
+                det.blk.name.substr_offsets = blk_substr_offsets;
                 break;
 
             default:
@@ -6356,6 +6464,11 @@ md_enter_child_containers(MD_CTX* ctx, int n_children)
                                 0, c->admonition_type, MD_BLOCK_CONTAINER_OPENER));
                 break;
 
+            case _T(':'):   /* sny: fenced block */
+                MD_CHECK(md_push_container_bytes(ctx, MD_BLOCK_BLOCK,
+                                c->name_off, c->name_len, MD_BLOCK_CONTAINER_OPENER));
+                break;
+
             default:
                 MD_UNREACHABLE();
                 break;
@@ -6398,6 +6511,11 @@ md_leave_child_containers(MD_CTX* ctx, int n_keep)
                                 0, c->admonition_type, MD_BLOCK_CONTAINER_CLOSER));
                 break;
 
+            case _T(':'):   /* sny: fenced block */
+                MD_CHECK(md_push_container_bytes(ctx, MD_BLOCK_BLOCK,
+                                c->name_off, c->name_len, MD_BLOCK_CONTAINER_CLOSER));
+                break;
+
             default:
                 MD_UNREACHABLE();
                 break;
@@ -6408,6 +6526,66 @@ md_leave_child_containers(MD_CTX* ctx, int n_keep)
 
 abort:
     return ret;
+}
+
+/* sny: Recognise a ::: fence line. Returns 1 for an opener (which carries a
+ * @ "name"), 2 for a bare closer, 0 if this is not a fence at all. */
+static int
+md_is_block_fence(MD_CTX* ctx, OFF beg, OFF* p_end, OFF* p_name_off,
+                  unsigned* p_name_len)
+{
+    OFF off = beg;
+    OFF name_beg;
+
+    if(!(ctx->parser.flags & MD_FLAG_BLOCKS))
+        return 0;
+
+    if(off + 2 >= ctx->size  ||  CH(off) != _T(':')  ||  CH(off+1) != _T(':')  ||
+       CH(off+2) != _T(':'))
+        return 0;
+
+    off += 3;
+
+    while(off < ctx->size  &&  ISBLANK(off))
+        off++;
+
+    if(off >= ctx->size  ||  ISNEWLINE(off)) {
+        *p_end = off;
+        return 2;
+    }
+
+    if(CH(off) != _T('@'))
+        return 0;
+
+    off++;
+
+    while(off < ctx->size  &&  ISBLANK(off))
+        off++;
+
+    if(off >= ctx->size  ||  CH(off) != _T('"'))
+        return 0;
+
+    off++;
+    name_beg = off;
+
+    while(off < ctx->size  &&  !ISNEWLINE(off)  &&  CH(off) != _T('"'))
+        off++;
+
+    if(off >= ctx->size  ||  CH(off) != _T('"'))
+        return 0;
+
+    *p_name_off = name_beg;
+    *p_name_len = off - name_beg;
+    off++;
+
+    while(off < ctx->size  &&  ISBLANK(off))
+        off++;
+
+    if(off < ctx->size  &&  !ISNEWLINE(off))
+        return 0;
+
+    *p_end = off;
+    return 1;
 }
 
 static int
@@ -6529,6 +6707,9 @@ md_analyze_line(MD_CTX* ctx, OFF beg, OFF* p_end,
 
             line->beg = off;
 
+        } else if(c->ch == _T(':')) {
+            /* sny: A fenced block swallows every line until its closing
+             * fence, so it always matches. */
         } else if(c->ch != _T('>')  &&  line->indent >= c->contents_indent) {
             /* List. */
             line->indent -= c->contents_indent;
@@ -6545,6 +6726,69 @@ md_analyze_line(MD_CTX* ctx, OFF beg, OFF* p_end,
         if(n_brothers + n_children == 0) {
             while(n_parents < ctx->n_containers  &&  ctx->containers[n_parents].ch != _T('>'))
                 n_parents++;
+        }
+    }
+
+    /* sny: ::: fence lines open or close a MD_BLOCK_BLOCK container. Checked
+     * before anything else so ':::' is never mistaken for a paragraph. */
+    if((ctx->parser.flags & MD_FLAG_BLOCKS)  &&  line->indent < ctx->code_indent_offset  &&
+       pivot_line->type != MD_LINE_FENCEDCODE  &&  pivot_line->type != MD_LINE_INDENTEDCODE)
+    {
+        OFF fence_end = off;
+        OFF name_off = 0;
+        unsigned name_len = 0;
+        int kind = md_is_block_fence(ctx, off, &fence_end, &name_off, &name_len);
+
+        if(kind == 2) {
+            int i;
+
+            for(i = n_parents - 1; i >= 0; i--) {
+                if(ctx->containers[i].ch == _T(':'))
+                    break;
+            }
+
+            if(i >= 0) {
+                MD_CHECK(md_end_current_block(ctx));
+                MD_CHECK(md_leave_child_containers(ctx, i));
+
+                n_parents = i;
+                line->beg = fence_end;
+                line->end = fence_end;
+                line->type = MD_LINE_BLANK;
+                *p_end = fence_end;
+
+                while(*p_end < ctx->size  &&  !ISNEWLINE(*p_end))
+                    (*p_end)++;
+                if(*p_end < ctx->size)
+                    (*p_end)++;
+
+                return 0;
+            }
+        } else if(kind == 1  &&  n_parents == ctx->n_containers) {
+            container.ch = _T(':');
+            container.is_loose = FALSE;
+            container.is_task = FALSE;
+            container.is_admonition = FALSE;
+            container.mark_indent = line->indent;
+            container.contents_indent = line->indent;
+            container.name_off = name_off;
+            container.name_len = name_len;
+
+            MD_CHECK(md_end_current_block(ctx));
+            MD_CHECK(md_push_container(ctx, &container));
+            MD_CHECK(md_enter_child_containers(ctx, 1));
+
+            line->beg = fence_end;
+            line->end = fence_end;
+            line->type = MD_LINE_BLANK;
+            *p_end = fence_end;
+
+            while(*p_end < ctx->size  &&  !ISNEWLINE(*p_end))
+                (*p_end)++;
+            if(*p_end < ctx->size)
+                (*p_end)++;
+
+            return 0;
         }
     }
 

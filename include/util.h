@@ -7,7 +7,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <stack>
+#include <string>
 #include <vector>
 
 namespace sparse_graph {
@@ -104,6 +106,24 @@ struct Builder {
   FlatTree<T> &tree;
   std::stack<uint32_t> stk;
 
+  T &top() { return tree[stk.top()]; }
+
+  uint32_t top_idx() const { return stk.top(); }
+
+  inline size_t size() const { return tree.nodes.size(); }
+
+  inline void truncate(size_t n) {
+    tree.nodes.resize(n);
+    tree.end_idx.resize(n);
+  }
+
+  inline void abandon() {
+    uint32_t curr_idx = stk.top();
+    stk.pop();
+
+    truncate(curr_idx);
+  }
+
   inline size_t enter(const T &&t) {
     stk.push(tree.nodes.size());
     tree.nodes.push_back(t);
@@ -112,10 +132,12 @@ struct Builder {
     return tree.nodes.size();
   }
 
-  inline void leave() {
+  inline size_t leave() {
     uint32_t curr_idx = stk.top();
     stk.pop();
     tree.end_idx[curr_idx] = tree.nodes.size();
+
+    return curr_idx;
   }
 
   Builder<T>(FlatTree<T> &t) : tree{t}, stk{} { stk.push(0); }
@@ -153,7 +175,9 @@ enum class NodeKind : uint8_t {
   OrderedList,
   Item,
   IntLink,
-  ExtLink
+  ExtLink,
+  Block,
+  Excerpt,
 };
 
 struct Node {
@@ -167,5 +191,7 @@ struct Note {
   std::string source, rel_path;
 
   flat_tree::FlatTree<Node> g;
+
+  std::map<std::string, uint32_t> tags; // maps tag ->  node idx
 };
 }  // namespace md

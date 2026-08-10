@@ -118,7 +118,12 @@ typedef enum MD_BLOCKTYPE {
     /* Adminition extension.
      * Detail MD_BLOCK_ADMONITION_DETAIL.
      * Note: Recognized only when MD_FLAG_ADMONITIONS is enabled. */
-    MD_BLOCK_ADMONITION
+    MD_BLOCK_ADMONITION,
+
+    /* sny: ::: @ "name" ... ::: fenced container.
+     * Detail MD_BLOCK_BLOCK_DETAIL.
+     * Note: Recognized only when MD_FLAG_BLOCKS is enabled. */
+    MD_BLOCK_BLOCK
 } MD_BLOCKTYPE;
 
 /* Span represents an in-line piece of a document which should be rendered with
@@ -191,7 +196,12 @@ typedef enum MD_SPANTYPE {
     /* <mark>...</mark>
      * Syntax: ==highlight==
      * Note: Recognized only when MD_FLAG_HIGHLIGHT is enabled. */
-    MD_SPAN_MARK
+    MD_SPAN_MARK,
+
+    /* sny: {{path @ "tag"}} excerpt reference.
+     * Detail MD_SPAN_EXCERPT_DETAIL.
+     * Note: Recognized only when MD_FLAG_EXCERPTS is enabled. */
+    MD_SPAN_EXCERPT
 } MD_SPANTYPE;
 
 /* Text is the actual textual contents of span. */
@@ -331,6 +341,17 @@ typedef struct MD_BLOCK_ADMONITION_DETAIL {
     MD_ATTRIBUTE type;          /* One of "note", "tip", "important", "warning", "caution" */
 } MD_BLOCK_ADMONITION_DETAIL;
 
+/* sny: Detailed info for MD_BLOCK_BLOCK. */
+typedef struct MD_BLOCK_BLOCK_DETAIL {
+    MD_ATTRIBUTE name;          /* Contents of the quotes in ::: @ "name" */
+} MD_BLOCK_BLOCK_DETAIL;
+
+/* sny: Detailed info for MD_SPAN_EXCERPT. */
+typedef struct MD_SPAN_EXCERPT_DETAIL {
+    MD_ATTRIBUTE path;          /* Before the @, whitespace trimmed */
+    MD_ATTRIBUTE tag;           /* Contents of the quotes, empty if absent */
+} MD_SPAN_EXCERPT_DETAIL;
+
 /* Detailed info for MD_SPAN_A. */
 typedef struct MD_SPAN_A_DETAIL {
     MD_ATTRIBUTE href;
@@ -389,6 +410,8 @@ typedef struct MD_BLOCK_FOOTNOTE_DEF_DETAIL {
 #define MD_FLAG_ADMONITIONS                 0x80000 /* Enable admonitions extension. */
 #define MD_FLAG_FOOTNOTES                   0x100000 /* Enable [^label] footnote references. */
 #define MD_FLAG_HIGHLIGHT                   0x200000 /* Enable ==highlight== spans. */
+#define MD_FLAG_BLOCKS                      0x400000 /* sny: Enable ::: @ "name" fenced containers. */
+#define MD_FLAG_EXCERPTS                    0x800000 /* sny: Enable {{path @ "tag"}} excerpts. */
 
 #define MD_FLAG_PERMISSIVEAUTOLINKS         (MD_FLAG_PERMISSIVEEMAILAUTOLINKS | MD_FLAG_PERMISSIVEURLAUTOLINKS | MD_FLAG_PERMISSIVEWWWAUTOLINKS)
 #define MD_FLAG_NOHTML                      (MD_FLAG_NOHTMLBLOCKS | MD_FLAG_NOHTMLSPANS)

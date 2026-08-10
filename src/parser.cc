@@ -3,10 +3,13 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <regex>
 #include <sstream>
+#include <utility>
 
 #include "md4c.h"
 #include "sydney.h"
+#include "util.h"
 
 namespace syd_parser {
 // md4c emits normalised whitespace, line breaks and attribute substitutions
@@ -36,6 +39,8 @@ inline md::Node node_from_detail(MD_BLOCKTYPE type, void *detail) {
       return md::Node{.kind = md::NodeKind::Item};
     case MD_BLOCK_P:
       return md::Node{.kind = md::NodeKind::Para};
+    case MD_BLOCK_BLOCK:
+      return md::Node{.kind = md::NodeKind::Block};
     default:
       std::cout << "WARNING: Unsupported block type " << type << "\n";
       return md::Node{.kind = md::NodeKind::Para};
@@ -59,6 +64,17 @@ inline md::Node node_from_detail(MD_SPANTYPE type, void *detail,
 
       if (in_source(src, d->target.text, d->target.size)) {
         node.text = str::Slice(src, d->target.text, d->target.size);
+      }
+
+      return node;
+    }
+    case MD_SPAN_EXCERPT: {
+      MD_SPAN_EXCERPT_DETAIL *d = static_cast<MD_SPAN_EXCERPT_DETAIL *>(detail);
+
+      md::Node node{.kind = md::NodeKind::Excerpt};
+
+      if (in_source(src, d->path.text, d->path.size)) {
+        node.text = str::Slice(src, d->path.text, d->path.size);
       }
 
       return node;
@@ -89,6 +105,8 @@ inline MD_PARSER get_parser() {
       return 0;
     }
 
+    std::string t(text, size);
+
     const std::string &src = state->note.source;
 
     md::Node node{};
@@ -109,7 +127,7 @@ inline MD_PARSER get_parser() {
   };
 
   return MD_PARSER{
-      .flags = MD_FLAG_WIKILINKS,
+      .flags = MD_FLAG_WIKILINKS | MD_FLAG_BLOCKS | MD_FLAG_EXCERPTS,
       .enter_block =
           [](MD_BLOCKTYPE type, void *detail, void *userdata) {
             Parser *parser = static_cast<Parser *>(userdata);
@@ -122,6 +140,7 @@ inline MD_PARSER get_parser() {
           [](MD_BLOCKTYPE type, void *detail, void *userdata) {
             Parser *parser = static_cast<Parser *>(userdata);
             parser->builder.leave();
+
             return 0;
           },
       .enter_span =

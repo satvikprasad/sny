@@ -4,6 +4,13 @@ NodeKind::Break -> <br>
 
 NodeKind::Space -> &#32;
 
+NodeKind::Block ->
+<div>
+	()
+</div>
+
+NodeKind::Excerpt -> <span class="excerpt" data-path="{{}}">()</span>
+
 NodeKind::Em -> <em>()</em>
 
 NodeKind::Strong -> <strong>()</strong>
