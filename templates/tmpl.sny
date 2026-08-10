@@ -10,6 +10,8 @@ NodeKind::Strong -> <strong>()</strong>
 
 NodeKind::Code -> <code>()</code>
 
+NodeKind::Link -> <a href="{{}}">()</a>
+
 NodeKind::Heading ->
 <h(aux)>()</h(aux)>
 

@@ -214,7 +214,7 @@ inline void
 add_case (std::string &cases, const std::string &label,
           const std::string &chunk, bool indent_first)
 {
-  cases += "\tcase " + label + ":\n";
+  cases += "\tcase md::" + label + ":\n";
 
   if (!chunk.empty ())
     cases += build_indented (chunk, indent_first);
@@ -227,7 +227,7 @@ put_dispatch (std::ofstream &out, const std::string &name,
               const std::string &cases)
 {
   out << "inline void tmpl_put_" << name
-      << "([[maybe_unused]] const NodeKind kind,\n"
+      << "([[maybe_unused]] const md::NodeKind kind,\n"
       << "\t\t[[maybe_unused]] const std::string &text,\n"
       << "\t\t[[maybe_unused]] const uint32_t aux,\n"
       << "\t\t[[maybe_unused]] const uint32_t depth, std::string &buf) {\n"
@@ -249,7 +249,7 @@ main (int argc, char **argv)
     }
 
   std::filesystem::path out = out_dir / "template.h";
-  std::filesystem::path tmpl = std::filesystem::path (argv[1]) / "tmpl.syd";
+  std::filesystem::path tmpl = std::filesystem::path (argv[1]) / "tmpl.sny";
   assert (std::filesystem::exists (tmpl));
 
   std::ofstream out_file = std::ofstream (out);
@@ -310,7 +310,7 @@ main (int argc, char **argv)
       add_case (footer_cases, label, split.footer,
                 !is_inline && split.footer_indented);
 
-      step_cases += "\tcase " + label + ":\n\t\treturn "
+      step_cases += "\tcase md::" + label + ":\n\t\treturn "
                     + std::to_string (split.indent.size ()) + ";\n";
     }
 
@@ -319,7 +319,9 @@ main (int argc, char **argv)
            << "#include <cstdint>\n"
            << "#include <format>\n"
            << "#include <string>\n\n"
-           << "#include \"sydney.h\"\n\n";
+           << "#include \"util.h\"\n\n";
+
+  out_file << "namespace meta {\n\n";
 
   out_file << "inline void tmpl_indent(const uint32_t depth, std::string "
               "&buf) {\n"
@@ -327,7 +329,7 @@ main (int argc, char **argv)
            << (indent_char == '\t' ? "\\t" : " ") << "');\n"
            << "}\n\n";
 
-  out_file << "inline uint32_t tmpl_indent_step(const NodeKind kind) {\n"
+  out_file << "inline uint32_t tmpl_indent_step(const md::NodeKind kind) {\n"
            << "\tswitch (kind) {\n"
            << step_cases
            << "\tdefault:\n\t\tassert(false && \"unhandled NodeKind\");\n"
@@ -336,6 +338,8 @@ main (int argc, char **argv)
 
   put_dispatch (out_file, "header", header_cases);
   put_dispatch (out_file, "footer", footer_cases);
+
+  out_file << "}  // namespace meta\n";
 
   return 0;
 }

@@ -9,130 +9,137 @@
 #include "sydney.h"
 
 namespace syd_parser {
-inline Node node_from_detail(MD_BLOCKTYPE type, void *detail) {
+// md4c emits normalised whitespace, line breaks and attribute substitutions
+// from its own string literals rather than from the source buffer, so a
+// pointer only yields a valid offset when it lies inside that buffer.
+inline bool in_source(const std::string &src, const MD_CHAR *p, MD_SIZE n) {
+    const char *base = src.data();
+    return p >= base && p + n <= base + src.size();
+}
+
+inline str::Slice slice_of(const std::string &src, const MD_CHAR *p,
+                           MD_SIZE n) {
+    return str::Slice{.off = static_cast<uint32_t>(p - src.data()), .len = n};
+}
+
+inline md::Node node_from_detail(MD_BLOCKTYPE type, void *detail) {
     switch (type) {
         case MD_BLOCK_DOC:
-            return Node{.kind = NodeKind::Doc};
+            return md::Node{.kind = md::NodeKind::Doc};
         case MD_BLOCK_H: {
             MD_BLOCK_H_DETAIL *d = static_cast<MD_BLOCK_H_DETAIL *>(detail);
-            return Node{.kind = NodeKind::Heading,
-                        .aux = static_cast<uint8_t>(d->level)};
+            return md::Node{.kind = md::NodeKind::Heading,
+                            .aux = static_cast<uint8_t>(d->level)};
         }
         case MD_BLOCK_QUOTE:
-            return Node{.kind = NodeKind::Quote};
+            return md::Node{.kind = md::NodeKind::Quote};
         case MD_BLOCK_UL:
-            return Node{.kind = NodeKind::List};
+            return md::Node{.kind = md::NodeKind::List};
         case MD_BLOCK_OL:
-            return Node{.kind = NodeKind::OrderedList};
+            return md::Node{.kind = md::NodeKind::OrderedList};
         case MD_BLOCK_LI:
-            return Node{.kind = NodeKind::Item};
+            return md::Node{.kind = md::NodeKind::Item};
         case MD_BLOCK_P:
-            return Node{.kind = NodeKind::Para};
+            return md::Node{.kind = md::NodeKind::Para};
         default:
             std::cout << "WARNING: Unsupported block type " << type << "\n";
-            return Node{.kind = NodeKind::Para};
+            return md::Node{.kind = md::NodeKind::Para};
     }
 }
 
-inline Node node_from_detail(MD_SPANTYPE type, void *detail) {
+inline md::Node node_from_detail(MD_SPANTYPE type, void *detail,
+                                 const std::string &src) {
     switch (type) {
         case MD_SPAN_EM:
-            return Node{.kind = NodeKind::Em};
+            return md::Node{.kind = md::NodeKind::Em};
         case MD_SPAN_STRONG:
-            return Node{.kind = NodeKind::Strong};
+            return md::Node{.kind = md::NodeKind::Strong};
         case MD_SPAN_CODE:
-            return Node{.kind = NodeKind::Code};
+            return md::Node{.kind = md::NodeKind::Code};
+        case MD_SPAN_WIKILINK: {
+            MD_SPAN_WIKILINK_DETAIL *d =
+                static_cast<MD_SPAN_WIKILINK_DETAIL *>(detail);
+
+            md::Node node{.kind = md::NodeKind::Link};
+
+            if (in_source(src, d->target.text, d->target.size)) {
+                node.text = slice_of(src, d->target.text, d->target.size);
+            }
+
+            return node;
+        }
         default:
             std::cout << "WARNING: Unsupported span type " << type << "\n";
-            return Node{.kind = NodeKind::Em};
+            return md::Node{.kind = md::NodeKind::Em};
     }
 }
-int enter_block(MD_BLOCKTYPE type, void *detail, void *userdata) {
-    NoteParserState *state = static_cast<NoteParserState *>(userdata);
-    std::vector<Node> &nodes = state->note.doc.nodes;
-    std::vector<uint32_t> &end = state->note.doc.end;
 
-    state->stk.push(nodes.size());
+inline MD_PARSER get_parser() {
+    auto text = [](MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size,
+                   void *userdata) {
+        Parser *state = static_cast<Parser *>(userdata);
+        std::vector<md::Node> &nodes = state->note.g.nodes;
+        std::vector<uint32_t> &end = state->note.g.end;
 
-    nodes.push_back(node_from_detail(type, detail));
-    end.push_back(0);
+        if (type == MD_TEXT_NULLCHAR) {
+            return 0;
+        }
 
-    return 0;
-}
+        const std::string &src = state->note.source;
 
-int leave_block(MD_BLOCKTYPE type, void *detail, void *userdata) {
-    NoteParserState *state = static_cast<NoteParserState *>(userdata);
+        md::Node node{};
 
-    uint32_t curr_idx = state->stk.top();
-    state->stk.pop();
+        if (type == MD_TEXT_BR) {
+            node.kind = md::NodeKind::Break;
+        } else if (type == MD_TEXT_SOFTBR || !in_source(src, text, size)) {
+            node.kind = md::NodeKind::Space;
+        } else {
+            node.kind = md::NodeKind::Text;
+            node.text = slice_of(src, text, size);
+        }
 
-    state->note.doc.end[curr_idx] = state->note.doc.nodes.size();
+        nodes.push_back(node);
+        end.push_back(nodes.size());
 
-    return 0;
-}
-
-int enter_span(MD_SPANTYPE type, void *detail, void *userdata) {
-    NoteParserState *state = static_cast<NoteParserState *>(userdata);
-    std::vector<Node> &nodes = state->note.doc.nodes;
-    std::vector<uint32_t> &end = state->note.doc.end;
-
-    state->stk.push(nodes.size());
-
-    nodes.push_back(node_from_detail(type, detail));
-    end.push_back(0);
-
-    return 0;
-}
-
-int leave_span(MD_SPANTYPE type, void *detail, void *userdata) {
-    NoteParserState *state = static_cast<NoteParserState *>(userdata);
-
-    uint32_t curr_idx = state->stk.top();
-    state->stk.pop();
-
-    state->note.doc.end[curr_idx] = state->note.doc.nodes.size();
-
-    return 0;
-}
-
-int text(MD_TEXTTYPE type, const MD_CHAR *text, MD_SIZE size, void *userdata) {
-    NoteParserState *state = static_cast<NoteParserState *>(userdata);
-    std::vector<Node> &nodes = state->note.doc.nodes;
-    std::vector<uint32_t> &end = state->note.doc.end;
-
-    if (type == MD_TEXT_NULLCHAR) {
         return 0;
-    }
+    };
 
-    // md4c emits normalised whitespace, line breaks and the null replacement
-    // from its own string literals rather than from the source buffer, so the
-    // pointer only yields a valid offset when it lies inside that buffer.
-    const char *base = state->note.source.data();
-    const bool in_source =
-        text >= base && text + size <= base + state->note.source.size();
-
-    Node node{};
-
-    if (type == MD_TEXT_BR) {
-        node.kind = NodeKind::Break;
-    } else if (type == MD_TEXT_SOFTBR || !in_source) {
-        node.kind = NodeKind::Space;
-    } else {
-        node.kind = NodeKind::Text;
-        node.text = Slice{
-            .off = static_cast<uint32_t>(text - base),
-            .len = size,
-        };
-    }
-
-    nodes.push_back(node);
-    end.push_back(nodes.size());
-
-    return 0;
+    return MD_PARSER{
+        .flags = MD_FLAG_WIKILINKS,
+        .enter_block =
+            [](MD_BLOCKTYPE type, void *detail, void *userdata) {
+                Parser *state =
+                    static_cast<Parser *>(userdata);
+                state->builder.enter(node_from_detail(type, detail));
+                return 0;
+            },
+        .leave_block =
+            [](MD_BLOCKTYPE type, void *detail, void *userdata) {
+                Parser *state =
+                    static_cast<Parser *>(userdata);
+                state->builder.leave();
+                return 0;
+            },
+        .enter_span =
+            [](MD_SPANTYPE type, void *detail, void *userdata) {
+                Parser *state =
+                    static_cast<Parser *>(userdata);
+                state->builder.enter(
+                    node_from_detail(type, detail, state->note.source));
+                return 0;
+            },
+        .leave_span =
+            [](MD_SPANTYPE type, void *detail, void *userdata) {
+                Parser *state =
+                    static_cast<Parser *>(userdata);
+                state->builder.leave();
+                return 0;
+            },
+        .text = text};
 }
 
-std::map<std::filesystem::path, Note> parse(const Args &sa) {
-    std::map<std::filesystem::path, Note> notes{};
+std::map<std::filesystem::path, md::Note> parse(const Args &sa) {
+    std::map<std::filesystem::path, md::Note> notes{};
 
     for (const auto &entry :
          std::filesystem::recursive_directory_iterator(sa.root_dir)) {
@@ -151,23 +158,15 @@ std::map<std::filesystem::path, Note> parse(const Args &sa) {
         std::stringstream buffer;
         buffer << file.rdbuf();
 
-        NoteParserState state{
-            .stk = std::stack<uint32_t>(),
-            .note = {}};  // state to track construction of AST
+        Parser state{};  // state to track construction of AST
 
-        state.stk.push(0);
-        Note &note = state.note;
+        md::Note &note = state.note;
 
         note.source = buffer.str();
-        note.doc.nodes = std::vector<Node>(1);  // sentinel first node
-        note.doc.end = std::vector<uint32_t>(1);
+        note.g.nodes = std::vector<md::Node>(1);  // sentinel first node
+        note.g.end = std::vector<uint32_t>(1);
 
-        struct MD_PARSER parser = {.enter_block = &enter_block,
-                                   .leave_block = &leave_block,
-                                   .enter_span = &enter_span,
-                                   .leave_span = &leave_span,
-                                   .text = &text};
-
+        MD_PARSER parser = get_parser();
         if (md_parse(note.source.c_str(), note.source.size(), &parser,
                      &state)) {
             std::cout << "ERROR: failed to parse " << p << "\n";
@@ -178,4 +177,4 @@ std::map<std::filesystem::path, Note> parse(const Args &sa) {
 
     return notes;
 }
-}  // namespace parser
+}  // namespace syd_parser

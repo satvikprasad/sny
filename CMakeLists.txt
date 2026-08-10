@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(sydney)
+project(sny)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -31,28 +31,28 @@ set(SYDNEY_TEMPLATE_HEADER ${CMAKE_CURRENT_SOURCE_DIR}/src/meta/template.h)
 add_custom_command(
 	OUTPUT ${SYDNEY_TEMPLATE_HEADER}
 	COMMAND templater ${SYDNEY_TEMPLATE_DIR}
-	DEPENDS templater ${SYDNEY_TEMPLATE_DIR}/tmpl.syd
+	DEPENDS templater ${SYDNEY_TEMPLATE_DIR}/tmpl.sny
 	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-	COMMENT "Generating src/meta/template.h from templates/tmpl.syd"
+	COMMENT "Generating src/meta/template.h from templates/tmpl.sny"
 	VERBATIM
 )
 
 add_custom_target(template DEPENDS ${SYDNEY_TEMPLATE_HEADER})
 
-add_executable(sydney)
+add_executable(sny)
 
-target_compile_features(sydney PRIVATE cxx_std_20)
+target_compile_features(sny PRIVATE cxx_std_20)
 
-target_sources(sydney
+target_sources(sny
 	PRIVATE
 		src/main.cc
 		src/parser.cc
 )
 
-target_include_directories(sydney
+target_include_directories(sny
 	PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_link_libraries(sydney PRIVATE md4c::md4c)
+target_link_libraries(sny PRIVATE md4c::md4c)
 
-add_dependencies(sydney template)
+add_dependencies(sny template)
