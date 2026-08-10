@@ -47,6 +47,7 @@ target_sources(sny
 	PRIVATE
 		src/main.cc
 		src/parser.cc
+		src/linter.cc
 )
 
 target_include_directories(sny
