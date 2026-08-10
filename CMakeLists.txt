@@ -46,6 +46,7 @@ target_compile_features(sydney PRIVATE cxx_std_20)
 target_sources(sydney
 	PRIVATE
 		src/main.cc
+		src/parser.cc
 )
 
 target_include_directories(sydney

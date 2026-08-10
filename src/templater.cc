@@ -6,6 +6,7 @@
 #include <iostream>
 #include <regex>
 #include <string>
+#include <vector>
 
 inline std::string
 build_literal (const std::string &body, const std::string &text_arg,
@@ -60,52 +61,59 @@ build_literal (const std::string &body, const std::string &text_arg,
   return lit;
 }
 
-struct Put
+inline std::string
+build_stmt (const std::string &chunk)
 {
-  std::string params, stmt;
-};
+  const bool has_aux = chunk.find ("(aux)") != std::string::npos;
+  const bool has_text = chunk.find ("{{}}") != std::string::npos;
 
-inline Put
-build_put (const std::string &body)
-{
-  const bool has_aux = body.find ("(aux)") != std::string::npos;
-  const bool has_text = body.find ("{{}}") != std::string::npos;
-
-  std::string params, args, text_arg, aux_arg;
+  std::string args, text_arg, aux_arg;
 
   if (has_text && has_aux)
     {
-      params = "const std::string &text, const uint32_t aux, std::string &buf";
       args = ", text, aux";
       text_arg = "{0}";
       aux_arg = "{1}";
     }
   else if (has_aux)
     {
-      params = "const uint32_t aux, std::string &buf";
       args = ", aux";
       aux_arg = "{0}";
     }
   else if (has_text)
     {
-      params = "const std::string &text, std::string &buf";
       args = ", text";
       text_arg = "{0}";
     }
-  else
+
+  const std::string lit = build_literal (chunk, text_arg, aux_arg);
+
+  return has_text || has_aux
+             ? "buf += std::format(\"" + lit + "\"" + args + ");"
+             : "buf += \"" + lit + "\";";
+}
+
+inline std::vector<std::string>
+split_lines (const std::string &body)
+{
+  std::vector<std::string> lines;
+  size_t start = 0;
+
+  while (start < body.size ())
     {
-      params = "std::string &buf";
+      const size_t nl = body.find ('\n', start);
+
+      if (nl == std::string::npos)
+        {
+          lines.push_back (body.substr (start));
+          break;
+        }
+
+      lines.push_back (body.substr (start, nl - start + 1));
+      start = nl + 1;
     }
 
-  const std::string lit = build_literal (body, text_arg, aux_arg);
-
-  Put put;
-  put.params = params;
-  put.stmt = has_text || has_aux
-                 ? "buf += std::format(\"" + lit + "\"" + args + ");"
-                 : "buf += \"" + lit + "\";";
-
-  return put;
+  return lines;
 }
 
 inline std::string
@@ -122,40 +130,96 @@ read_body (std::ifstream &in)
   return body;
 }
 
-inline void
-split_body (const std::string &body, std::string &header, std::string &footer)
+struct Split
 {
+  std::string header, footer, indent;
+  bool footer_indented;
+};
+
+inline bool
+all_blank (const std::string &s, size_t from, size_t to)
+{
+  for (size_t i = from; i < to; ++i)
+    if (s[i] != ' ' && s[i] != '\t')
+      return false;
+
+  return true;
+}
+
+inline Split
+split_body (const std::string &body)
+{
+  Split split;
+  split.footer_indented = false;
+
   const size_t children = body.find ("()");
 
-  if (children != std::string::npos)
+  if (children == std::string::npos)
     {
-      header = body.substr (0, children);
-      footer = body.substr (children + 2);
-      return;
+      const size_t text_end = body.find ("{{}}");
+
+      if (text_end == std::string::npos)
+        split.header = body;
+      else
+        {
+          split.header = body.substr (0, text_end + 4);
+          split.footer = body.substr (text_end + 4);
+        }
+
+      return split;
     }
 
-  const size_t text_end = body.find ("{{}}");
+  const size_t nl = body.rfind ('\n', children);
+  const size_t line_start = nl == std::string::npos ? 0 : nl + 1;
 
-  if (text_end == std::string::npos)
+  const size_t after = children + 2;
+  const size_t eol = body.find ('\n', after);
+  const size_t line_end = eol == std::string::npos ? body.size () : eol;
+
+  if (all_blank (body, line_start, children)
+      && all_blank (body, after, line_end))
     {
-      header = body;
-      footer.clear ();
-      return;
+      split.indent = body.substr (line_start, children - line_start);
+      split.header = body.substr (0, line_start);
+      split.footer = eol == std::string::npos ? "" : body.substr (eol + 1);
+      split.footer_indented = true;
+
+      return split;
     }
 
-  header = body.substr (0, text_end + 4);
-  footer = body.substr (text_end + 4);
+  split.header = body.substr (0, children);
+  split.footer = body.substr (after);
+
+  return split;
+}
+
+inline std::string
+build_indented (const std::string &chunk, bool indent_first)
+{
+  std::string code;
+
+  for (const std::string &line : split_lines (chunk))
+    {
+      if (indent_first && line != "\n")
+        code += "\t\ttmpl_indent(depth, buf);\n";
+
+      code += "\t\t" + build_stmt (line) + "\n";
+      indent_first = true;
+    }
+
+  return code;
 }
 
 inline void
 add_case (std::string &cases, const std::string &label,
-          const std::string &body)
+          const std::string &chunk, bool indent_first)
 {
-  if (body.empty ())
-    return;
+  cases += "\tcase " + label + ":\n";
 
-  cases += "\tcase " + label + ":\n\t\t" + build_put (body).stmt
-           + "\n\t\tbreak;\n";
+  if (!chunk.empty ())
+    cases += build_indented (chunk, indent_first);
+
+  cases += "\t\tbreak;\n";
 }
 
 inline void
@@ -165,7 +229,8 @@ put_dispatch (std::ofstream &out, const std::string &name,
   out << "inline void tmpl_put_" << name
       << "([[maybe_unused]] const NodeKind kind,\n"
       << "\t\t[[maybe_unused]] const std::string &text,\n"
-      << "\t\t[[maybe_unused]] const uint32_t aux, std::string &buf) {\n"
+      << "\t\t[[maybe_unused]] const uint32_t aux,\n"
+      << "\t\t[[maybe_unused]] const uint32_t depth, std::string &buf) {\n"
       << "\tswitch (kind) {\n"
       << cases << "\tdefault:\n\t\tassert(false && \"unhandled NodeKind\");\n"
       << "\t\tbreak;\n"
@@ -191,16 +256,10 @@ main (int argc, char **argv)
   std::ifstream tmpl_file = std::ifstream (tmpl);
   std::string line;
 
-  const std::regex head_pattern (R"(^([A-Za-z_][\w:]*)\s*->\s*$)");
+  const std::regex head_pattern (R"(^([A-Za-z_][\w:]*)\s*->\s*(.*)$)");
 
-  out_file << "#pragma once\n\n"
-           << "#include <cassert>\n"
-           << "#include <cstdint>\n"
-           << "#include <format>\n"
-           << "#include <string>\n\n"
-           << "#include \"sydney.h\"\n\n";
-
-  std::string header_cases, footer_cases;
+  std::string header_cases, footer_cases, step_cases;
+  char indent_char = '\t';
 
   while (std::getline (tmpl_file, line))
     {
@@ -216,30 +275,64 @@ main (int argc, char **argv)
         }
 
       const std::string label = matches[1];
-      const std::string body = read_body (tmpl_file);
+      std::string inlined = matches[2];
 
-      if (label.starts_with ("NodeKind::"))
-        {
-          std::string header, footer;
-          split_body (body, header, footer);
+      while (!inlined.empty ()
+             && (inlined.back () == ' ' || inlined.back () == '\t'))
+        inlined.pop_back ();
 
-          add_case (header_cases, label, header);
-          add_case (footer_cases, label, footer);
-        }
-      else if (label == "preamble" || label == "postamble")
-        {
-          const Put put = build_put (body);
+      const bool is_inline = !inlined.empty ();
+      const std::string body = is_inline ? inlined : read_body (tmpl_file);
 
-          out_file << "inline void tmpl_put_" << label << "(" << put.params
-                   << ") {\n\t" << put.stmt << "\n}\n\n";
-        }
-      else
+      if (!label.starts_with ("NodeKind::"))
         {
           std::cerr << tmpl << ": unknown label `" << label
-                    << "`, expected NodeKind::*, preamble or postamble\n";
+                    << "`, expected NodeKind::*\n";
           return 1;
         }
+
+      const Split split = split_body (body);
+
+      if (!split.indent.empty ())
+        {
+          if (indent_char != '\t' && indent_char != split.indent[0])
+            {
+              std::cerr << tmpl << ": " << label
+                        << " indents () with a different character than an"
+                           " earlier block\n";
+              return 1;
+            }
+
+          indent_char = split.indent[0];
+        }
+
+      add_case (header_cases, label, split.header, !is_inline);
+      add_case (footer_cases, label, split.footer,
+                !is_inline && split.footer_indented);
+
+      step_cases += "\tcase " + label + ":\n\t\treturn "
+                    + std::to_string (split.indent.size ()) + ";\n";
     }
+
+  out_file << "#pragma once\n\n"
+           << "#include <cassert>\n"
+           << "#include <cstdint>\n"
+           << "#include <format>\n"
+           << "#include <string>\n\n"
+           << "#include \"sydney.h\"\n\n";
+
+  out_file << "inline void tmpl_indent(const uint32_t depth, std::string "
+              "&buf) {\n"
+           << "\tbuf.append(depth, '"
+           << (indent_char == '\t' ? "\\t" : " ") << "');\n"
+           << "}\n\n";
+
+  out_file << "inline uint32_t tmpl_indent_step(const NodeKind kind) {\n"
+           << "\tswitch (kind) {\n"
+           << step_cases
+           << "\tdefault:\n\t\tassert(false && \"unhandled NodeKind\");\n"
+           << "\t\treturn 0;\n"
+           << "\t}\n}\n\n";
 
   put_dispatch (out_file, "header", header_cases);
   put_dispatch (out_file, "footer", footer_cases);

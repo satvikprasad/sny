@@ -1,17 +1,124 @@
+NodeKind::Text -> {{}}
+
+NodeKind::Break -> <br>
+
+NodeKind::Space -> &#32;
+
+NodeKind::Em -> <em>()</em>
+
+NodeKind::Strong -> <strong>()</strong>
+
+NodeKind::Code -> <code>()</code>
+
 NodeKind::Heading ->
-<h(aux)>{{}}()</h(aux)>
+<h(aux)>()</h(aux)>
 
 NodeKind::Para ->
-<p>{{}}()</p>
+<p>()</p>
+
+NodeKind::List ->
+<ul>
+	()
+</ul>
+
+NodeKind::OrderedList ->
+<ol>
+	()
+</ol>
+
+NodeKind::Item ->
+<li>
+	()
+</li>
+
+NodeKind::Quote ->
+<blockquote>
+	()
+</blockquote>
 
 NodeKind::Doc ->
-<body>()</body>
-
-preamble ->
-<html>
+<!DOCTYPE html>
+<html lang="en">
 	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<title>{{}}</title>
+		<style>
+			html {
+				-webkit-text-size-adjust: 100%;
+			}
+			body {
+				font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+				font-size: 18px;
+				line-height: 1.65;
+				color: #222;
+				background: #fff;
+				max-width: 38rem;
+				margin: 0 auto;
+				padding: 4rem 1.5rem 6rem;
+				text-rendering: optimizeLegibility;
+			}
+			h1, h2, h3, h4, h5, h6 {
+				line-height: 1.25;
+				font-weight: 600;
+				letter-spacing: -0.01em;
+				margin: 2.5rem 0 1rem;
+			}
+			h1 {
+				font-size: 2rem;
+				margin-top: 0;
+			}
+			h2 {
+				font-size: 1.5rem;
+			}
+			h3 {
+				font-size: 1.2rem;
+			}
+			p {
+				margin: 0 0 1.25rem;
+			}
+			ul, ol {
+				margin: 0 0 1.25rem;
+				padding-left: 1.5rem;
+			}
+			li {
+				margin: 0.25rem 0;
+			}
+			li > p {
+				margin: 0 0 0.5rem;
+			}
+			li > ul, li > ol {
+				margin: 0.25rem 0 0;
+			}
+			a {
+				color: #0645ad;
+				text-decoration: underline;
+				text-underline-offset: 0.15em;
+			}
+			blockquote {
+				margin: 1.5rem 0;
+				padding-left: 1.25rem;
+				border-left: 2px solid #e0e0e0;
+				color: #555;
+			}
+			code, pre {
+				font-family: ui-monospace, "SF Mono", Menlo, monospace;
+				font-size: 0.9em;
+			}
+			pre {
+				overflow-x: auto;
+				padding: 1rem;
+				background: #f6f6f4;
+				border-radius: 4px;
+			}
+			hr {
+				border: none;
+				border-top: 1px solid #e5e5e5;
+				margin: 3rem 0;
+			}
+		</style>
 	</head>
-
-postamble ->
+	<body>
+		()
+	</body>
 </html>
