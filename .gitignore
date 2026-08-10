@@ -3,3 +3,4 @@ static/
 notes/
 .cache/
 src/meta/
+.DS_Store

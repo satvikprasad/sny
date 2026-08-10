@@ -1,9 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <cassert>
-#include <concepts>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <stack>
 #include <vector>
@@ -15,40 +17,42 @@ struct Edge {
 
   Edge<T>(T a, T b) : u(a), v(b) {}
 
-  bool operator==(const Edge<T> &rhs) const {
-    return (rhs.u == u && rhs.v == v) || (rhs.v == u && rhs.u == v);
-  };
+  auto operator<=>(const Edge<T> &) const = default;
 };
+
+inline void build_csr(size_t n, const std::vector<Edge<uint32_t>> &edges,
+                      bool reverse, std::vector<uint32_t> &offsets,
+                      std::vector<uint32_t> &adjacency) {
+  offsets.assign(n + 1, 0);
+
+  for (auto [u, v] : edges) {
+    assert(u < n && v < n);
+    offsets[(reverse ? v : u) + 1]++;
+  }
+
+  for (size_t i = 0; i < n; ++i) offsets[i + 1] += offsets[i];
+
+  adjacency.resize(offsets[n]);
+
+  std::vector<uint32_t> cursor(offsets.begin(), offsets.end() - 1);
+
+  for (auto [u, v] : edges) {
+    adjacency[cursor[reverse ? v : u]++] = reverse ? u : v;
+  }
+}
 
 template <typename T>
 struct SparseGraph {
-  const std::vector<T> &nodes;
-  std::vector<uint32_t> offsets, adjacency;
+  std::vector<uint32_t> out_offsets, out_adjacency;
+  std::vector<uint32_t> in_offsets, in_adjacency;
 
   SparseGraph<T>(const std::vector<T> &backing,
-                 const std::vector<Edge<uint32_t>> &edges)
-      : nodes(backing), offsets(nodes.size() + 1, 0) {
-    const size_t N = nodes.size();
-    const size_t M = edges.size();
-
-    adjacency.reserve(2 * M);
-
-    std::vector<std::vector<uint32_t>> cols(N, std::vector<uint32_t>());
-
-    for (auto [u, v] : edges) {
-      cols[u].push_back(v);
-      cols[v].push_back(u);
-    }
-
-    uint32_t tot = 0;
-    for (uint32_t i = 0; i < N; ++i) {
-      offsets[i] = tot;
-      tot += cols[i].size();
-      for (auto j : cols[i]) adjacency.push_back(j);
-    }
-
-    offsets[N] = tot;
+                 const std::vector<Edge<uint32_t>> &edges) {
+    build_csr(backing.size(), edges, false, out_offsets, out_adjacency);
+    build_csr(backing.size(), edges, true, in_offsets, in_adjacency);
   }
+
+  SparseGraph<T>() {}
 };
 };  // namespace sparse_graph
 
@@ -81,7 +85,6 @@ struct FlatTree {
         const T &close = nodes[j];
 
         exit(close);
-
         closes.pop();
       }
     }
@@ -149,7 +152,8 @@ enum class NodeKind : uint8_t {
   List,
   OrderedList,
   Item,
-  Link
+  IntLink,
+  ExtLink
 };
 
 struct Node {
@@ -160,23 +164,8 @@ struct Node {
 };
 
 struct Note {
-  std::string source;
+  std::string source, rel_path;
+
   flat_tree::FlatTree<Node> g;
 };
 }  // namespace md
-
-namespace std {
-template <typename T>
-  requires std::integral<T>
-struct hash<sparse_graph::Edge<T>> {
-  std::size_t operator()(const sparse_graph::Edge<T> &e) const {
-    const T lo = e.u < e.v ? e.u : e.v;
-    const T hi = e.u < e.v ? e.v : e.u;
-
-    std::size_t h = hash<T>{}(lo);
-    h ^= hash<T>{}(hi) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-
-    return h;
-  }
-};
-}  // namespace std

@@ -1,0 +1,98 @@
+#!/bin/sh
+set -eu
+
+usage() {
+	echo "usage: sny_watch [notes_dir] [out_dir]" >&2
+	echo "  env: SNY_BUILD_DIR (default <repo>/build)" >&2
+	echo "       SNY_WATCH_INTERVAL (default 1)" >&2
+	echo "       SNY_RELOAD_MATCH (default localhost, empty to disable)" >&2
+}
+
+case "${1:-}" in
+-h | --help)
+	usage
+	exit 0
+	;;
+esac
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="${SNY_BUILD_DIR:-$ROOT/build}"
+NOTES_DIR="${1:-$ROOT/notes}"
+OUT_DIR="${2:-$ROOT/static}"
+INTERVAL="${SNY_WATCH_INTERVAL:-1}"
+RELOAD_MATCH="${SNY_RELOAD_MATCH-localhost}"
+
+STAMP="$BUILD_DIR/.sny_watch-stamp"
+WATCHED="$NOTES_DIR $ROOT/templates $ROOT/src $ROOT/include"
+
+if [ ! -d "$NOTES_DIR" ]; then
+	echo "sny_watch: $NOTES_DIR does not exist" >&2
+	exit 1
+fi
+
+if [ ! -d "$BUILD_DIR" ]; then
+	echo "sny_watch: $BUILD_DIR does not exist, run cmake -S . -B build" >&2
+	exit 1
+fi
+
+reload_chrome() {
+	[ -n "$RELOAD_MATCH" ] || return 0
+	command -v osascript >/dev/null 2>&1 || return 0
+	pgrep -x "Google Chrome" >/dev/null 2>&1 || return 0
+
+	reloaded=$(osascript - "$RELOAD_MATCH" 2>/dev/null <<'OSA' || true
+on run argv
+	set needle to item 1 of argv
+	set n to 0
+	tell application "Google Chrome"
+		repeat with w in windows
+			repeat with t in tabs of w
+				if URL of t contains needle then
+					tell t to reload
+					set n to n + 1
+				end if
+			end repeat
+		end repeat
+	end tell
+	return n
+end run
+OSA
+	)
+
+	if [ -n "${reloaded:-}" ] && [ "$reloaded" != "0" ]; then
+		printf 'reloaded %s chrome tab(s)\n' "$reloaded"
+	fi
+}
+
+rebuild() {
+	printf '\n\033[1m== %s ==\033[0m\n' "$(date '+%H:%M:%S')"
+
+	if ! cmake --build "$BUILD_DIR" --target sny; then
+		printf '\033[31mbuild failed\033[0m\n'
+		return 0
+	fi
+
+	if ! "$BUILD_DIR/sny" "$NOTES_DIR" -o "$OUT_DIR"; then
+		printf '\033[31msny failed\033[0m\n'
+		return 0
+	fi
+
+	reload_chrome
+}
+
+echo "sny_watch: $NOTES_DIR -> $OUT_DIR (every ${INTERVAL}s, ^C to stop)"
+
+rm -f "$STAMP"
+touch "$STAMP"
+rebuild
+
+while :; do
+	sleep "$INTERVAL"
+
+	changed=$(find $WATCHED -type f -newer "$STAMP" -print -quit 2>/dev/null || true)
+
+	if [ -n "$changed" ]; then
+		touch "$STAMP"
+		rebuild
+	fi
+done

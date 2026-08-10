@@ -55,10 +55,21 @@ inline md::Node node_from_detail(MD_SPANTYPE type, void *detail,
       MD_SPAN_WIKILINK_DETAIL *d =
           static_cast<MD_SPAN_WIKILINK_DETAIL *>(detail);
 
-      md::Node node{.kind = md::NodeKind::Link};
+      md::Node node{.kind = md::NodeKind::IntLink};
 
       if (in_source(src, d->target.text, d->target.size)) {
         node.text = str::Slice(src, d->target.text, d->target.size);
+      }
+
+      return node;
+    }
+    case MD_SPAN_A: {
+      MD_SPAN_A_DETAIL *d = static_cast<MD_SPAN_A_DETAIL *>(detail);
+
+      md::Node node{.kind = md::NodeKind::ExtLink};
+
+      if (in_source(src, d->href.text, d->href.size)) {
+        node.text = str::Slice(src, d->href.text, d->href.size);
       }
 
       return node;
@@ -148,7 +159,7 @@ void parse(const Args &sa, Universe &uv) {
     buffer << file.rdbuf();
 
     uv.path_mapping[p] = uv.notes.size();
-    uv.notes.push_back(md::Note{});
+    uv.notes.push_back(md::Note{.rel_path = p.lexically_relative(sa.root_dir)});
 
     Parser parser(uv.notes.back());  // state to track construction of AST
     if (!parser.parse(buffer, get_parser())) {

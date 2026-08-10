@@ -10,7 +10,9 @@ NodeKind::Strong -> <strong>()</strong>
 
 NodeKind::Code -> <code>()</code>
 
-NodeKind::Link -> <a href="{{}}">()</a>
+NodeKind::IntLink -> <a class="int-link" href="{{}}">()</a>
+
+NodeKind::ExtLink -> <a class="ext-link" href="{{}}">()</a>
 
 NodeKind::Heading ->
 <h(aux)>()</h(aux)>
@@ -55,10 +57,17 @@ NodeKind::Doc ->
 				line-height: 1.65;
 				color: #222;
 				background: #fff;
-				max-width: 38rem;
-				margin: 0 auto;
-				padding: 4rem 1.5rem 6rem;
+				margin: 0;
+				padding: 0;
 				text-rendering: optimizeLegibility;
+				display: grid;
+				grid-template-columns: minmax(0, 30rem) minmax(0, 38rem);
+				gap: 2.5rem;
+				justify-content: center;
+			}
+			main {
+				padding: 4rem 1.5rem 6rem;
+				min-width: 0;
 			}
 			h1, h2, h3, h4, h5, h6 {
 				line-height: 1.25;
@@ -118,9 +127,197 @@ NodeKind::Doc ->
 				border-top: 1px solid #e5e5e5;
 				margin: 3rem 0;
 			}
+			#graph {
+				position: sticky;
+				top: 0;
+				align-self: start;
+				padding: 2rem 0 2rem 1.5rem;
+				height: 100vh;
+				box-sizing: border-box;
+			}
+			#kgraph {
+				display: block;
+				width: 100%;
+				height: 100%;
+				background: #fff;
+				border: 1px solid #ececec;
+				border-radius: 6px;
+				cursor: grab;
+				touch-action: none;
+			}
+			#kgraph.kg-panning {
+				cursor: grabbing;
+			}
+			.kg-link {
+				stroke: #dcdcdc;
+				stroke-width: 0.4;
+			}
+			.kg-node circle {
+				fill: #c4c4c4;
+				cursor: pointer;
+			}
+			.kg-node text {
+				font-size: 2.6px;
+				fill: #999;
+				text-anchor: middle;
+				pointer-events: none;
+			}
+			.kg-node:hover circle {
+				fill: #0645ad;
+			}
+			.kg-node:hover text {
+				fill: #222;
+			}
+			.kg-here circle {
+				fill: #0645ad;
+			}
+			.kg-here text {
+				fill: #222;
+				font-weight: 600;
+			}
+			@media (max-width: 78rem) {
+				body {
+					display: block;
+				}
+				main {
+					max-width: 38rem;
+					margin: 0 auto;
+				}
+				#graph {
+					display: none;
+				}
+			}
 		</style>
 	</head>
-	<body>
-		()
+	<body data-note="{{}}">
+		<aside id="graph"><svg id="kgraph"></svg></aside>
+		<main>
+			()
+		</main>
+		<script>
+		(() => {
+			const svg = document.getElementById("kgraph");
+			const here = document.body.dataset.note || "";
+			const up = "../".repeat((here.match(/\//g) || []).length);
+			const NS = "http://www.w3.org/2000/svg";
+			const el = (name, attrs) => {
+				const e = document.createElementNS(NS, name);
+				for (const k in attrs) e.setAttribute(k, attrs[k]);
+				return e;
+			};
+			fetch(up + "kgraph.json").then(r => r.json()).then(g => {
+				const N = g.nodes.length;
+				if (!N) return;
+				const pos = g.nodes.map((n, i) => {
+					const a = 2 * Math.PI * i / N;
+					return { x: Math.cos(a), y: Math.sin(a) };
+				});
+				const deg = new Array(N).fill(0);
+				for (const [a, b] of g.links) { deg[a]++; deg[b]++; }
+				for (let step = 0; step < 400; step++) {
+					const fx = new Float64Array(N);
+					const fy = new Float64Array(N);
+					for (let i = 0; i < N; i++) {
+						for (let j = i + 1; j < N; j++) {
+							const dx = pos[i].x - pos[j].x;
+							const dy = pos[i].y - pos[j].y;
+							const f = 0.02 / (dx * dx + dy * dy + 0.001);
+							fx[i] += dx * f; fy[i] += dy * f;
+							fx[j] -= dx * f; fy[j] -= dy * f;
+						}
+					}
+					for (const [a, b] of g.links) {
+						const dx = pos[b].x - pos[a].x;
+						const dy = pos[b].y - pos[a].y;
+						fx[a] += dx * 0.02; fy[a] += dy * 0.02;
+						fx[b] -= dx * 0.02; fy[b] -= dy * 0.02;
+					}
+					const cool = 0.5 * (1 - step / 400);
+					for (let i = 0; i < N; i++) {
+						pos[i].x += fx[i] * cool - pos[i].x * 0.002;
+						pos[i].y += fy[i] * cool - pos[i].y * 0.002;
+					}
+				}
+				let lo = { x: Infinity, y: Infinity };
+				let hi = { x: -Infinity, y: -Infinity };
+				for (const p of pos) {
+					lo.x = Math.min(lo.x, p.x); hi.x = Math.max(hi.x, p.x);
+					lo.y = Math.min(lo.y, p.y); hi.y = Math.max(hi.y, p.y);
+				}
+				const span = Math.max(hi.x - lo.x, hi.y - lo.y, 0.001);
+				const s = 84 / span;
+				for (const p of pos) {
+					p.x = 50 + (p.x - (lo.x + hi.x) / 2) * s;
+					p.y = 50 + (p.y - (lo.y + hi.y) / 2) * s;
+				}
+				let view = { x: 0, y: 0, w: 112, h: 112 };
+				const apply = () => svg.setAttribute("viewBox", view.x + " " + view.y + " " + view.w + " " + view.h);
+				const fit = () => {
+					const r = svg.getBoundingClientRect();
+					const aspect = r.width / Math.max(r.height, 1);
+					let w = 112, h = 112 / aspect;
+					if (h < 112) { h = 112; w = 112 * aspect; }
+					view = { x: 50 - w / 2, y: 50 - h / 2, w: w, h: h };
+					apply();
+				};
+				fit();
+				window.addEventListener("resize", fit);
+				for (const [a, b] of g.links) {
+					svg.appendChild(el("line", { x1: pos[a].x, y1: pos[a].y, x2: pos[b].x, y2: pos[b].y, class: "kg-link" }));
+				}
+				let dragged = false;
+				g.nodes.forEach((n, i) => {
+					const cls = n.path === here ? "kg-node kg-here" : "kg-node";
+					const grp = el("g", { class: cls, "data-url": up + n.url });
+					grp.appendChild(el("circle", { cx: pos[i].x, cy: pos[i].y, r: 1.5 + Math.min(deg[i], 6) * 0.35 }));
+					const label = el("text", { x: pos[i].x, y: pos[i].y - 3 });
+					label.textContent = n.path.replace(/\.md$/, "").split("/").pop();
+					grp.appendChild(label);
+					svg.appendChild(grp);
+				});
+				svg.addEventListener("wheel", (ev) => {
+					ev.preventDefault();
+					const r = svg.getBoundingClientRect();
+					const px = view.x + (ev.clientX - r.left) / Math.max(r.width, 1) * view.w;
+					const py = view.y + (ev.clientY - r.top) / Math.max(r.height, 1) * view.h;
+					const w = Math.min(600, Math.max(8, view.w * Math.exp(ev.deltaY * 0.002)));
+					const k = w / view.w;
+					view.x = px - (px - view.x) * k;
+					view.y = py - (py - view.y) * k;
+					view.w = w;
+					view.h *= k;
+					apply();
+				}, { passive: false });
+				let drag = null;
+				let hit = null;
+				svg.addEventListener("pointerdown", (ev) => {
+					drag = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y };
+					dragged = false;
+					hit = ev.target && ev.target.closest ? ev.target.closest("[data-url]") : null;
+					svg.setPointerCapture(ev.pointerId);
+					svg.classList.add("kg-panning");
+				});
+				svg.addEventListener("pointermove", (ev) => {
+					if (!drag) return;
+					const dx = ev.clientX - drag.x;
+					const dy = ev.clientY - drag.y;
+					if (Math.abs(dx) + Math.abs(dy) > 3) dragged = true;
+					const r = svg.getBoundingClientRect();
+					view.x = drag.vx - dx / Math.max(r.width, 1) * view.w;
+					view.y = drag.vy - dy / Math.max(r.height, 1) * view.h;
+					apply();
+				});
+				svg.addEventListener("pointerup", (ev) => {
+					if (!drag) return;
+					drag = null;
+					svg.releasePointerCapture(ev.pointerId);
+					svg.classList.remove("kg-panning");
+					const url = hit && !dragged ? hit.getAttribute("data-url") : null;
+					hit = null;
+					if (url) window.location.href = url;
+				});
+			}).catch(() => {});
+		})();
+		</script>
 	</body>
 </html>

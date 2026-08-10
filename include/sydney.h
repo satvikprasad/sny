@@ -8,6 +8,8 @@
 struct Universe {
   std::vector<md::Note> notes{};
   std::map<std::filesystem::path, uint32_t> path_mapping{};
+
+  sparse_graph::SparseGraph<md::Note> kgraph;
 };
 
 struct Args {

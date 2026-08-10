@@ -1,18 +1,15 @@
-#include <cassert>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <optional>
-#include <vector>
 
+#include "emitter.h"
 #include "linter.h"
-#include "meta/template.h"
 #include "parser.h"
 #include "sydney.h"
-#include "util.h"
 
 namespace sp = syd_parser;
 namespace sl = syd_linter;
+namespace se = syd_emitter;
 
 std::optional<Args> parse_args(char argc, char **argv) {
   auto disp_help = [&]() {
@@ -43,87 +40,10 @@ std::optional<Args> parse_args(char argc, char **argv) {
   }
 
   if (!std::filesystem::exists(sa.out_dir)) {
-    // create directory of it does not exist
     std::filesystem::create_directory(sa.out_dir);
   }
 
   return sa;
-}
-
-// Rewrites a link target into a url relative to the emitted page. The output
-// tree mirrors the note tree, so a relative target already points at the right
-// place once its extension is swapped; anything with a scheme is left alone.
-std::string resolve_href(const std::string &href) {
-  if (href.empty() || href.starts_with("#") || href.starts_with("//") ||
-      href.starts_with("mailto:") || href.find("://") != std::string::npos) {
-    return href;
-  }
-
-  std::string path = href;
-  std::string fragment;
-
-  if (size_t hash = path.find('#'); hash != std::string::npos) {
-    fragment = path.substr(hash);
-    path.resize(hash);
-  }
-
-  if (path.ends_with(".md")) {
-    path.resize(path.size() - 3);
-    path += ".html";
-  } else if (!std::filesystem::path(path).has_extension()) {
-    // wiki-link targets name a note rather than a file
-    path += ".html";
-  }
-
-  return path + fragment;
-}
-
-void syd_put(const Universe &uv, const Args &sa) {
-  for (const auto &[p, note_idx] : uv.path_mapping) {
-    const md::Note &note = uv.notes[note_idx];
-
-    auto rel = std::filesystem::relative(p, sa.root_dir);
-    std::cout << "INFO: putting note " << std::string(rel) << "\n";
-
-    auto base = (sa.out_dir / rel).replace_extension(".html");
-    auto parent = base.parent_path();
-
-    if (!std::filesystem::exists(parent)) {
-      std::filesystem::create_directories(parent);
-    }
-
-    std::ofstream file = std::ofstream(base);
-    const std::string &src = note.source;
-    std::string buf;
-    buf.reserve(64 * 1024);
-
-    const auto node_text = [&](const md::Node &n) -> std::string {
-      if (n.kind == md::NodeKind::Doc) {
-        return rel.string();
-      }
-
-      if (n.kind == md::NodeKind::Link) {
-        return resolve_href(n.text.to_str(src));
-      }
-
-      return n.text.to_str(src);
-    };
-
-    uint32_t depth = 0;
-    note.g.preorder(
-        [&](const md::Node &curr) {
-          meta::tmpl_put_header(curr.kind, node_text(curr), curr.aux, depth,
-                                buf);
-          depth += meta::tmpl_indent_step(curr.kind);
-        },
-        [&](const md::Node &close) {
-          depth -= meta::tmpl_indent_step(close.kind);
-          meta::tmpl_put_footer(close.kind, node_text(close), close.aux, depth,
-                                buf);
-        });
-
-    file << buf;
-  }
 }
 
 int main(int argc, char **argv) {
@@ -137,13 +57,8 @@ int main(int argc, char **argv) {
 
   Universe uv{};
   sp::parse(sa, uv);
-
-  std::cout << "INFO: finished parsing, putting to " << std::string(sa.out_dir)
-            << "\n";
-
   sl::lint(uv, sa.root_dir);
-
-  syd_put(uv, sa);
+  se::put(uv, sa);
 
   return 0;
 }

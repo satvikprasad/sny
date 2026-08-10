@@ -48,6 +48,7 @@ target_sources(sny
 		src/main.cc
 		src/parser.cc
 		src/linter.cc
+		src/emitter.cc
 )
 
 target_include_directories(sny
