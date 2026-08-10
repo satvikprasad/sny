@@ -4,35 +4,53 @@
 #include <filesystem>
 #include <stack>
 
-enum class NodeKind : uint8_t { Doc, Para, Heading, Quote };
-
-struct Slice {
-  uint32_t off, len;
+enum class NodeKind : uint8_t
+{
+  Doc,
+  Para,
+  Heading,
+  Quote
 };
 
-struct Node {
-	uint8_t aux;
+struct Slice
+{
+  uint32_t off, len;
+
+  std::string
+  from_src (const std::string &src) const
+  {
+    return std::string (&src[off], len);
+  }
+};
+
+struct Node
+{
+  uint8_t aux;
 
   NodeKind kind;
   Slice text;
 };
 
-struct Doc {
+struct Doc
+{
   std::vector<Node> nodes;
   std::vector<uint32_t> end;
 };
 
-struct Note {
+struct Note
+{
   std::string source;
   Doc doc;
 };
 
-struct NoteParserState {
+struct NoteParserState
+{
   uint32_t prev;
   std::stack<uint32_t> stk;
   Note note;
 };
 
-struct Args {
+struct Args
+{
   std::filesystem::path root_dir, out_dir;
 };

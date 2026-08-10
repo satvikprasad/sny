@@ -1,0 +1,17 @@
+NodeKind::Heading ->
+<h(aux)>{{}}()</h(aux)>
+
+NodeKind::Para ->
+<p>{{}}()</p>
+
+NodeKind::Doc ->
+<body>()</body>
+
+preamble ->
+<html>
+	<head>
+		<title>{{}}</title>
+	</head>
+
+postamble ->
+</html>
