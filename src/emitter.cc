@@ -4,6 +4,7 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <stack>
 #include <vector>
 
 #include "meta/template.h"
@@ -107,8 +108,38 @@ void put_kgraph(const Universe &uv, const Args &sa) {
   file << (first ? "" : "\n") << "  ]\n}\n";
 }
 
-void put_note(const std::filesystem::path &p, const md::Note &note,
-              const Args &sa) {
+struct Excerpt {
+  std::filesystem::path path;
+  std::string tag;
+};
+
+Excerpt parse_excerpt(const std::string &body) {
+  Excerpt ex;
+
+  size_t at = body.find('@');
+  std::string path = at == std::string::npos ? body : body.substr(0, at);
+
+  while (!path.empty() && isspace(static_cast<unsigned char>(path.back())))
+    path.pop_back();
+
+  ex.path = path;
+
+  if (at != std::string::npos) {
+    size_t open = body.find('"', at);
+    size_t close = open == std::string::npos
+                       ? std::string::npos
+                       : body.find('"', open + 1);
+
+    if (close != std::string::npos) {
+      ex.tag = body.substr(open + 1, close - open - 1);
+    }
+  }
+
+  return ex;
+}
+
+void put_note(const std::filesystem::path &p, const Universe &uv,
+              const md::Note &note, const Args &sa) {
   auto rel = std::filesystem::relative(p, sa.root_dir);
   std::cout << "INFO: putting note " << std::string(rel) << "\n";
 
@@ -120,40 +151,124 @@ void put_note(const std::filesystem::path &p, const md::Note &note,
   }
 
   std::ofstream file = std::ofstream(base);
-  const std::string &src = note.source;
   std::string buf;
   buf.reserve(64 * 1024);
 
-  const auto node_text = [&](const md::Node &n) -> std::string {
-    if (n.kind == md::NodeKind::Doc) {
+  uint32_t depth = 0;
+
+  const auto node_text = [&](const md::Note &n, const md::Node &node) {
+    if (node.kind == md::NodeKind::Doc) {
       return rel.string();
     }
 
-    if (n.kind == md::NodeKind::IntLink || n.kind == md::NodeKind::ExtLink) {
-      return resolve_href(n.text.to_str(src));
+    if (node.kind == md::NodeKind::IntLink ||
+        node.kind == md::NodeKind::ExtLink) {
+      return resolve_href(node.text.to_str(n.source));
     }
 
-    return n.text.to_str(src);
+    if (node.kind == md::NodeKind::Excerpt) {
+      return resolve_href(parse_excerpt(node.text.to_str(n.source)).path.string());
+    }
+
+    return node.text.to_str(n.source);
   };
 
-  uint32_t depth = 0;
-  note.g.preorder(
-      [&](const md::Node &curr) {
-        meta::tmpl_put_header(curr.kind, node_text(curr), curr.aux, depth, buf);
-        depth += meta::tmpl_indent_step(curr.kind);
-      },
-      [&](const md::Node &close) {
-        depth -= meta::tmpl_indent_step(close.kind);
-        meta::tmpl_put_footer(close.kind, node_text(close), close.aux, depth,
-                              buf);
-      });
+  std::stack<uint32_t> closes{};
+
+  const auto drain = [&](const md::Note &n, uint32_t i) {
+    while (!closes.empty() && !n.g.is_child(i + 1, closes.top())) {
+      const md::Node &close = n.g.nodes[closes.top()];
+
+      depth -= meta::tmpl_indent_step(close.kind);
+      meta::tmpl_put_footer(close.kind, node_text(n, close), close.aux, depth,
+                            buf);
+
+      closes.pop();
+    }
+  };
+
+  const auto emit = [&](const md::Note &n, uint32_t i) {
+    const md::Node &curr = n.g.nodes[i];
+
+    meta::tmpl_put_header(curr.kind, node_text(n, curr), curr.aux, depth, buf);
+    depth += meta::tmpl_indent_step(curr.kind);
+
+    closes.push(i);
+    drain(n, i);
+  };
+
+  // Embedding is capped at depth 1, so the target range is walked by a plain
+  // inner loop that skips any excerpts it finds rather than recursing.
+  const auto embed = [&](const md::Note &n, uint32_t begin, uint32_t end) {
+    std::stack<uint32_t> outer;
+    closes.swap(outer);
+
+    for (uint32_t i = begin; i < end; ++i) {
+      const md::Node &curr = n.g.nodes[i];
+
+      if (curr.kind == md::NodeKind::Excerpt) {
+        const std::string body = curr.text.to_str(n.source);
+        const md::NodeKind kind = md::NodeKind::ExcerptNested;
+
+        meta::tmpl_put_header(kind, body, curr.aux, depth, buf);
+        meta::tmpl_put_footer(kind, body, curr.aux, depth, buf);
+
+        drain(n, i);
+        continue;
+      }
+
+      emit(n, i);
+    }
+
+    closes.swap(outer);
+  };
+
+  for (uint32_t i = 1; i < note.g.nodes.size(); ++i) {
+    const md::Node &curr = note.g.nodes[i];
+
+    if (curr.kind != md::NodeKind::Excerpt) {
+      emit(note, i);
+      continue;
+    }
+
+    const Excerpt ex = parse_excerpt(curr.text.to_str(note.source));
+    const auto target = uv.path_mapping.find(
+        (sa.root_dir / rel.parent_path() / ex.path).lexically_normal());
+
+    meta::tmpl_put_header(curr.kind, node_text(note, curr), curr.aux, depth,
+                          buf);
+    depth += meta::tmpl_indent_step(curr.kind);
+
+    if (target == uv.path_mapping.end()) {
+      std::cout << "ERROR: excerpt could not resolve " << std::string(ex.path)
+                << "\n";
+    } else {
+      const md::Note &from = uv.notes[target->second];
+
+      if (ex.tag.empty()) {
+        embed(from, 2, from.g.end_idx[1]);
+      } else if (const auto at = from.tags.find(ex.tag); at == from.tags.end()) {
+        std::cout << "ERROR: excerpt could not resolve tag " << ex.tag << " in "
+                  << std::string(ex.path) << "\n";
+      } else {
+        embed(from, at->second, from.g.end_idx[at->second]);
+      }
+    }
+
+    depth -= meta::tmpl_indent_step(curr.kind);
+    meta::tmpl_put_footer(curr.kind, node_text(note, curr), curr.aux, depth,
+                          buf);
+
+    drain(note, i);
+  }
+
 
   file << buf;
 }
 
 void put(const Universe &uv, const Args &sa) {
   for (const auto &[p, note_idx] : uv.path_mapping) {
-    put_note(p, uv.notes[note_idx], sa);
+    put_note(p, uv, uv.notes[note_idx], sa);
   }
 
   put_kgraph(uv, sa);

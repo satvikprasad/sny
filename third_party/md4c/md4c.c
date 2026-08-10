@@ -5116,9 +5116,16 @@ md_process_inlines(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines)
                 {
                     MD_MARK* opener = ((mark->flags & MD_MARK_OPENER) ? mark : &ctx->marks[mark->prev]);
                     MD_MARK* closer = &ctx->marks[opener->next];
+                    OFF body_beg = opener->beg + 2;
 
                     MD_CHECK(md_enter_leave_span_excerpt(ctx, (mark->flags & MD_MARK_OPENER),
-                                STR(opener->end), closer->beg - opener->end));
+                                STR(body_beg), closer->beg - body_beg));
+
+                    /* Swallow the body so it is not emitted as text; the
+                     * detail carries it instead. */
+                    if(mark->flags & MD_MARK_OPENER)
+                        ((MD_MARK*) mark)->end = closer->beg;
+
                     break;
                 }
 

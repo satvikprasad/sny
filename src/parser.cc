@@ -33,8 +33,11 @@ inline md::Node node_from_detail(MD_BLOCKTYPE type, void *detail) {
       return md::Node{.kind = md::NodeKind::Quote};
     case MD_BLOCK_UL:
       return md::Node{.kind = md::NodeKind::List};
-    case MD_BLOCK_OL:
-      return md::Node{.kind = md::NodeKind::OrderedList};
+    case MD_BLOCK_OL: {
+      MD_BLOCK_OL_DETAIL *d = static_cast<MD_BLOCK_OL_DETAIL *>(detail);
+      return md::Node{.kind = md::NodeKind::OrderedList,
+                      .aux = static_cast<uint8_t>(d->start)};
+    }
     case MD_BLOCK_LI:
       return md::Node{.kind = md::NodeKind::Item};
     case MD_BLOCK_P:
@@ -68,13 +71,21 @@ inline md::Node node_from_detail(MD_SPANTYPE type, void *detail,
 
       return node;
     }
+    case MD_SPAN_LATEXMATH:
+      return md::Node{.kind = md::NodeKind::Math};
+    case MD_SPAN_LATEXMATH_DISPLAY:
+      return md::Node{.kind = md::NodeKind::MathBlock};
     case MD_SPAN_EXCERPT: {
       MD_SPAN_EXCERPT_DETAIL *d = static_cast<MD_SPAN_EXCERPT_DETAIL *>(detail);
 
       md::Node node{.kind = md::NodeKind::Excerpt};
 
-      if (in_source(src, d->path.text, d->path.size)) {
-        node.text = str::Slice(src, d->path.text, d->path.size);
+      const MD_CHAR *beg = d->path.text;
+      const MD_CHAR *end = d->tag.size > 0 ? d->tag.text + d->tag.size + 1
+                                           : d->path.text + d->path.size;
+
+      if (in_source(src, beg, end - beg)) {
+        node.text = str::Slice(src, beg, end - beg);
       }
 
       return node;
@@ -127,12 +138,23 @@ inline MD_PARSER get_parser() {
   };
 
   return MD_PARSER{
-      .flags = MD_FLAG_WIKILINKS | MD_FLAG_BLOCKS | MD_FLAG_EXCERPTS,
+      .flags = MD_FLAG_WIKILINKS | MD_FLAG_BLOCKS | MD_FLAG_EXCERPTS |
+               MD_FLAG_LATEXMATHSPANS,
       .enter_block =
           [](MD_BLOCKTYPE type, void *detail, void *userdata) {
             Parser *parser = static_cast<Parser *>(userdata);
             uint32_t pushed =
                 parser->builder.enter(node_from_detail(type, detail)) - 1;
+
+            if (type == MD_BLOCK_BLOCK) {
+              MD_BLOCK_BLOCK_DETAIL *d =
+                  static_cast<MD_BLOCK_BLOCK_DETAIL *>(detail);
+
+              if (d->name.size > 0) {
+                parser->note.tags[std::string(d->name.text, d->name.size)] =
+                    pushed;
+              }
+            }
 
             return 0;
           },

@@ -178,6 +178,9 @@ enum class NodeKind : uint8_t {
   ExtLink,
   Block,
   Excerpt,
+  ExcerptNested,
+  Math,
+  MathBlock,
 };
 
 struct Node {
