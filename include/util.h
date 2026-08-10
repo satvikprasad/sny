@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cassert>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <stack>
 #include <vector>
@@ -10,9 +13,42 @@ template <typename T>
 struct Edge {
   T u, v;
 
-  bool operator==(const T &rhs) {
+  Edge<T>(T a, T b) : u(a), v(b) {}
+
+  bool operator==(const Edge<T> &rhs) const {
     return (rhs.u == u && rhs.v == v) || (rhs.v == u && rhs.u == v);
   };
+};
+
+template <typename T>
+struct SparseGraph {
+  const std::vector<T> &nodes;
+  std::vector<uint32_t> offsets, adjacency;
+
+  SparseGraph<T>(const std::vector<T> &backing,
+                 const std::vector<Edge<uint32_t>> &edges)
+      : nodes(backing), offsets(nodes.size() + 1, 0) {
+    const size_t N = nodes.size();
+    const size_t M = edges.size();
+
+    adjacency.reserve(2 * M);
+
+    std::vector<std::vector<uint32_t>> cols(N, std::vector<uint32_t>());
+
+    for (auto [u, v] : edges) {
+      cols[u].push_back(v);
+      cols[v].push_back(u);
+    }
+
+    uint32_t tot = 0;
+    for (uint32_t i = 0; i < N; ++i) {
+      offsets[i] = tot;
+      tot += cols[i].size();
+      for (auto j : cols[i]) adjacency.push_back(j);
+    }
+
+    offsets[N] = tot;
+  }
 };
 };  // namespace sparse_graph
 
@@ -128,3 +164,19 @@ struct Note {
   flat_tree::FlatTree<Node> g;
 };
 }  // namespace md
+
+namespace std {
+template <typename T>
+  requires std::integral<T>
+struct hash<sparse_graph::Edge<T>> {
+  std::size_t operator()(const sparse_graph::Edge<T> &e) const {
+    const T lo = e.u < e.v ? e.u : e.v;
+    const T hi = e.u < e.v ? e.v : e.u;
+
+    std::size_t h = hash<T>{}(lo);
+    h ^= hash<T>{}(hi) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+
+    return h;
+  }
+};
+}  // namespace std

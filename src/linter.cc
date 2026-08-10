@@ -2,7 +2,6 @@
 
 #include <filesystem>
 #include <iostream>
-#include <set>
 #include <vector>
 
 #include "sydney.h"
@@ -10,9 +9,10 @@
 
 namespace syd_linter {
 void lint(Universe &uv, const std::filesystem::path &root_dir) {
-  std::set<std::pair<uint32_t, uint32_t>> edges{};
+  std::vector<sparse_graph::Edge<uint32_t>> edges{};
 
-  for (int i = 0; i < uv.notes.size(); ++i) {
+  // build an edge list
+  for (uint32_t i = 0; i < uv.notes.size(); ++i) {
     const auto &n = uv.notes[i];
     for (const auto &node : n.g) {
       if (node.kind != md::NodeKind::Link) continue;
@@ -21,15 +21,18 @@ void lint(Universe &uv, const std::filesystem::path &root_dir) {
                 << node.text.to_str(n.source) << "\n";
 
       auto p = root_dir / node.text.to_str(n.source);
-      if (!std::filesystem::exists(p)) {
+      auto it = uv.path_mapping.find(p);
+
+      if (it == uv.path_mapping.end()) {
         std::cout << "ERROR: could not resolve backlink to " << std::string(p)
                   << "\n";
+        continue;
       }
 
-      uint32_t j = uv.path_mapping[p];
-
-      edges.insert({i, j});
+      edges.push_back(sparse_graph::Edge<uint32_t>(i, it->second));
     }
   }
+
+  sparse_graph::SparseGraph<md::Note> sg(uv.notes, edges);
 }
 }  // namespace syd_linter
