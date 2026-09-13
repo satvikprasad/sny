@@ -17,14 +17,24 @@ void lint(Universe &uv, const std::filesystem::path &root_dir) {
   for (uint32_t i = 0; i < uv.notes.size(); ++i) {
     const auto &n = uv.notes[i];
     for (const auto &node : n.g) {
-      if (node.kind != md::NodeKind::IntLink) continue;
-	  if (node.text.to_str(n.source).starts_with("http")) continue;
+      const bool is_link = node.kind == md::NodeKind::IntLink;
+      const bool is_excerpt = node.kind == md::NodeKind::Excerpt;
 
-      std::cout << "INFO: (" << i << ") encountered backlink to "
-                << node.text.to_str(n.source) << "\n";
+      if (!is_link && !is_excerpt) continue;
 
-      auto p = root_dir / std::filesystem::path(n.rel_path).parent_path() /
-               node.text.to_str(n.source);
+      const std::string body = node.text.to_str(n.source);
+
+      if (body.starts_with("http")) continue;
+
+      const std::string target = is_excerpt ? md::excerpt_path(body) : body;
+
+      std::cout << "INFO: (" << i << ") encountered "
+                << (is_excerpt ? "excerpt" : "backlink") << " to " << target
+                << "\n";
+
+      auto p = (root_dir / std::filesystem::path(n.rel_path).parent_path() /
+                target)
+                   .lexically_normal();
       auto it = uv.path_mapping.find(p);
 
       if (it == uv.path_mapping.end()) {

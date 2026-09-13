@@ -36,6 +36,32 @@ std::string resolve_href(const std::string &href) {
   return path + fragment;
 }
 
+std::string html_escape(const std::string &s) {
+  std::string out;
+  out.reserve(s.size());
+
+  for (char c : s) {
+    switch (c) {
+      case '&':
+        out += "&amp;";
+        break;
+      case '<':
+        out += "&lt;";
+        break;
+      case '>':
+        out += "&gt;";
+        break;
+      case '"':
+        out += "&quot;";
+        break;
+      default:
+        out += c;
+    }
+  }
+
+  return out;
+}
+
 std::string json_escape(const std::string &s) {
   std::string out;
   out.reserve(s.size());
@@ -116,13 +142,9 @@ struct Excerpt {
 Excerpt parse_excerpt(const std::string &body) {
   Excerpt ex;
 
+  ex.path = md::excerpt_path(body);
+
   size_t at = body.find('@');
-  std::string path = at == std::string::npos ? body : body.substr(0, at);
-
-  while (!path.empty() && isspace(static_cast<unsigned char>(path.back())))
-    path.pop_back();
-
-  ex.path = path;
 
   if (at != std::string::npos) {
     size_t open = body.find('"', at);
@@ -162,7 +184,8 @@ void put_note(const std::filesystem::path &p, const Universe &uv,
     }
 
     if (node.kind == md::NodeKind::IntLink ||
-        node.kind == md::NodeKind::ExtLink) {
+        node.kind == md::NodeKind::ExtLink ||
+        node.kind == md::NodeKind::Image) {
       return resolve_href(node.text.to_str(n.source));
     }
 
@@ -170,7 +193,12 @@ void put_note(const std::filesystem::path &p, const Universe &uv,
       return resolve_href(parse_excerpt(node.text.to_str(n.source)).path.string());
     }
 
-    return node.text.to_str(n.source);
+    if (node.kind == md::NodeKind::CodeBlock) {
+      const std::string lang = node.text.to_str(n.source);
+      return html_escape(lang.empty() ? "plaintext" : lang);
+    }
+
+    return html_escape(node.text.to_str(n.source));
   };
 
   std::stack<uint32_t> closes{};
@@ -266,11 +294,36 @@ void put_note(const std::filesystem::path &p, const Universe &uv,
   file << buf;
 }
 
+void put_assets(const Args &sa) {
+  for (const auto &entry :
+       std::filesystem::recursive_directory_iterator(sa.root_dir)) {
+    if (!entry.is_regular_file()) {
+      continue;
+    }
+
+    const std::filesystem::path &p = entry.path();
+
+    if (p.extension() == ".md") {
+      continue;
+    }
+
+    auto rel = std::filesystem::relative(p, sa.root_dir);
+    auto out = sa.out_dir / rel;
+
+    std::cout << "INFO: copying asset " << std::string(rel) << "\n";
+
+    std::filesystem::create_directories(out.parent_path());
+    std::filesystem::copy_file(p, out,
+                               std::filesystem::copy_options::update_existing);
+  }
+}
+
 void put(const Universe &uv, const Args &sa) {
   for (const auto &[p, note_idx] : uv.path_mapping) {
     put_note(p, uv, uv.notes[note_idx], sa);
   }
 
+  put_assets(sa);
   put_kgraph(uv, sa);
 }
 }  // namespace syd_emitter

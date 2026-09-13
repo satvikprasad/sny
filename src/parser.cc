@@ -44,6 +44,8 @@ inline md::Node node_from_detail(MD_BLOCKTYPE type, void *detail) {
       return md::Node{.kind = md::NodeKind::Para};
     case MD_BLOCK_BLOCK:
       return md::Node{.kind = md::NodeKind::Block};
+    case MD_BLOCK_CODE:
+      return md::Node{.kind = md::NodeKind::CodeBlock};
     default:
       std::cout << "WARNING: Unsupported block type " << type << "\n";
       return md::Node{.kind = md::NodeKind::Para};
@@ -90,6 +92,17 @@ inline md::Node node_from_detail(MD_SPANTYPE type, void *detail,
 
       return node;
     }
+    case MD_SPAN_IMG: {
+      MD_SPAN_IMG_DETAIL *d = static_cast<MD_SPAN_IMG_DETAIL *>(detail);
+
+      md::Node node{.kind = md::NodeKind::Image};
+
+      if (in_source(src, d->src.text, d->src.size)) {
+        node.text = str::Slice(src, d->src.text, d->src.size);
+      }
+
+      return node;
+    }
     case MD_SPAN_A: {
       MD_SPAN_A_DETAIL *d = static_cast<MD_SPAN_A_DETAIL *>(detail);
 
@@ -116,9 +129,18 @@ inline MD_PARSER get_parser() {
       return 0;
     }
 
-    std::string t(text, size);
-
     const std::string &src = state->note.source;
+
+    if (state->in_code) {
+      if (in_source(src, text, size)) {
+        const uint32_t off = static_cast<uint32_t>(text - src.data());
+
+        state->code_beg = std::min(state->code_beg, off);
+        state->code_end = std::max(state->code_end, off + size);
+      }
+
+      return 0;
+    }
 
     md::Node node{};
 
@@ -146,6 +168,27 @@ inline MD_PARSER get_parser() {
             uint32_t pushed =
                 parser->builder.enter(node_from_detail(type, detail)) - 1;
 
+            if (type == MD_BLOCK_CODE) {
+              MD_BLOCK_CODE_DETAIL *d =
+                  static_cast<MD_BLOCK_CODE_DETAIL *>(detail);
+              const std::string &src = parser->note.source;
+
+              if (in_source(src, d->lang.text, d->lang.size)) {
+                parser->builder.top().text =
+                    str::Slice(src, d->lang.text, d->lang.size);
+              }
+
+              if (d->fence_char == 0) {
+                std::cout << "WARNING: indented code block; md4c strips the "
+                             "indent so continuation lines keep it. Use a "
+                             "fence.\n";
+              }
+
+              parser->in_code = true;
+              parser->code_beg = UINT32_MAX;
+              parser->code_end = 0;
+            }
+
             if (type == MD_BLOCK_BLOCK) {
               MD_BLOCK_BLOCK_DETAIL *d =
                   static_cast<MD_BLOCK_BLOCK_DETAIL *>(detail);
@@ -161,6 +204,23 @@ inline MD_PARSER get_parser() {
       .leave_block =
           [](MD_BLOCKTYPE type, void *detail, void *userdata) {
             Parser *parser = static_cast<Parser *>(userdata);
+
+            if (type == MD_BLOCK_CODE) {
+              if (parser->code_end > parser->code_beg) {
+                const std::string &src = parser->note.source;
+
+                md::Node body{};
+                body.kind = md::NodeKind::Text;
+                body.text = str::Slice(src, src.data() + parser->code_beg,
+                                       parser->code_end - parser->code_beg);
+
+                parser->builder.enter(std::move(body));
+                parser->builder.leave();
+              }
+
+              parser->in_code = false;
+            }
+
             parser->builder.leave();
 
             return 0;
@@ -188,8 +248,13 @@ void parse(const Args &sa, Universe &uv) {
       continue;
     }
 
-    std::cout << "INFO: reading file " << entry << ".\n";
     std::filesystem::path p = entry.path();
+
+    if (p.extension() != ".md") {
+      continue;  // assets are copied verbatim by the emitter
+    }
+
+    std::cout << "INFO: reading file " << entry << ".\n";
 
     std::ifstream file(p);
     if (!file.is_open()) {

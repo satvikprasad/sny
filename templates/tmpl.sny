@@ -28,9 +28,14 @@ NodeKind::Strong -> <strong>()</strong>
 
 NodeKind::Code -> <code>()</code>
 
+NodeKind::Image -> <img class="img" src="{{}}" alt="()">
+
 NodeKind::IntLink -> <a class="int-link" href="{{}}">()</a>
 
 NodeKind::ExtLink -> <a class="ext-link" href="{{}}">()</a>
+
+NodeKind::CodeBlock ->
+<pre><code class="language-{{}}">()</code></pre>
 
 NodeKind::Heading ->
 <h(aux)>()</h(aux)>
@@ -69,6 +74,7 @@ NodeKind::Doc ->
 		<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 		<style>
 			html {
+				--measure: 38rem;
 				-webkit-text-size-adjust: 100%;
 			}
 			body {
@@ -81,12 +87,14 @@ NodeKind::Doc ->
 				padding: 0;
 				text-rendering: optimizeLegibility;
 				display: grid;
-				grid-template-columns: minmax(0, 30rem) minmax(0, 38rem);
+				grid-template-columns: minmax(0, 18rem) minmax(0, var(--measure)) 12.5rem;
+				grid-template-areas: "graph main nav";
 				gap: 2.5rem;
 				justify-content: center;
 			}
 			main {
-				padding: 4rem 1.5rem 6rem;
+				grid-area: main;
+				padding: 2.5rem 1.5rem 6rem;
 				min-width: 0;
 			}
 			h1, h2, h3, h4, h5, h6 {
@@ -140,6 +148,17 @@ NodeKind::Doc ->
 				overflow-x: auto;
 				padding: 1rem;
 				background: #f6f6f4;
+				border-radius: 4px;
+			}
+			pre code {
+				font-size: 1em;
+				line-height: 1.45;
+			}
+			.img {
+				display: block;
+				max-width: 100%;
+				height: auto;
+				margin: 1.5rem 0;
 				border-radius: 4px;
 			}
 			.excerpt {
@@ -198,11 +217,46 @@ NodeKind::Doc ->
 				border-top: 1px solid #e5e5e5;
 				margin: 3rem 0;
 			}
-			#graph {
+			.site-nav {
+				grid-area: nav;
 				position: sticky;
 				top: 0;
 				align-self: start;
-				padding: 2rem 0 2rem 1.5rem;
+				padding: 2.5rem 0 2rem;
+				font-size: 1.125rem;
+			}
+			.site-nav ul {
+				list-style: none;
+				margin: 0;
+				padding: 0;
+			}
+			.site-nav li {
+				margin: 0 0 0.75rem;
+			}
+			.site-nav a {
+				color: inherit;
+				text-decoration: none;
+			}
+			.site-nav a:hover {
+				text-decoration: underline;
+			}
+			.site-nav-foot {
+				position: fixed;
+				bottom: 1.5rem;
+				right: 1.5rem;
+			}
+			.site-nav-foot hr {
+				margin: 0 0 0.75rem;
+			}
+			.site-nav-foot p {
+				margin: 0;
+			}
+			#graph {
+				grid-area: graph;
+				position: sticky;
+				top: 0;
+				align-self: start;
+				padding: 2.5rem 0 2rem 1.5rem;
 				height: 100vh;
 				box-sizing: border-box;
 			}
@@ -246,13 +300,31 @@ NodeKind::Doc ->
 				fill: #222;
 				font-weight: 600;
 			}
-			@media (max-width: 78rem) {
+			@media (max-width: 73.5rem) {
 				body {
 					display: block;
 				}
 				main {
-					max-width: 38rem;
+					max-width: var(--measure);
 					margin: 0 auto;
+					padding-top: 2rem;
+				}
+				.site-nav {
+					position: static;
+					max-width: var(--measure);
+					margin: 0 auto;
+					padding: 1.5rem 1.5rem 0;
+				}
+				.site-nav ul {
+					display: flex;
+					flex-wrap: wrap;
+					gap: 1.25rem;
+				}
+				.site-nav li {
+					margin: 0;
+				}
+				.site-nav-foot {
+					display: none;
 				}
 				#graph {
 					display: none;
@@ -262,6 +334,19 @@ NodeKind::Doc ->
 	</head>
 	<body data-note="{{}}">
 		<aside id="graph"><svg id="kgraph"></svg></aside>
+		<nav class="site-nav">
+			<ul>
+				<li><a href="/">home</a></li>
+				<li><a href="/pages/projects">projects</a></li>
+				<li><a href="/pages/startups">startups</a></li>
+				<li><a href="/pages/music">music</a></li>
+				<li><a href="/brain/main.html">brain</a></li>
+			</ul>
+			<div class="site-nav-foot">
+				<hr>
+				<p>satvikprasad@gatech.edu</p>
+			</div>
+		</nav>
 		<main>
 			()
 		</main>

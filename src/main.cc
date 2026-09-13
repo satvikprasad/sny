@@ -25,7 +25,7 @@ std::optional<Args> parse_args(char argc, char **argv) {
   char *root_dir = argv[1];
 
   Args sa;
-  sa.root_dir = std::filesystem::path(root_dir);
+  sa.root_dir = std::filesystem::path(root_dir).lexically_normal();
 
   if (!std::filesystem::exists(sa.root_dir)) {
     std::cout << "ERROR: [input_dir] should exist, got " << root_dir << ".\n";
@@ -36,7 +36,7 @@ std::optional<Args> parse_args(char argc, char **argv) {
     sa.out_dir = std::filesystem::current_path() / "static/";
   } else {
     char *out_dir = argv[3];
-    sa.out_dir = std::filesystem::path(out_dir);
+    sa.out_dir = std::filesystem::path(out_dir).lexically_normal();
   }
 
   if (!std::filesystem::exists(sa.out_dir)) {

@@ -181,6 +181,8 @@ enum class NodeKind : uint8_t {
   ExcerptNested,
   Math,
   MathBlock,
+  CodeBlock,
+  Image,
 };
 
 struct Node {
@@ -189,6 +191,19 @@ struct Node {
 
   str::Slice text;
 };
+
+inline std::string excerpt_path(const std::string &body) {
+  size_t at = body.find('@');
+  std::string path = at == std::string::npos ? body : body.substr(0, at);
+
+  while (!path.empty() && (path.back() == ' ' || path.back() == '\t')) {
+    path.pop_back();
+  }
+
+  size_t beg = path.find_first_not_of(" \t");
+
+  return beg == std::string::npos ? path : path.substr(beg);
+}
 
 struct Note {
   std::string source, rel_path;
