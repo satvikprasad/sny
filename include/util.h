@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cctype>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
@@ -183,6 +184,7 @@ enum class NodeKind : uint8_t {
   MathBlock,
   CodeBlock,
   Image,
+  Video,
 };
 
 struct Node {
@@ -191,6 +193,20 @@ struct Node {
 
   str::Slice text;
 };
+
+// Markdown has no video syntax, so an `![]()` embed is a video when what it
+// points at is one.
+inline bool is_video_src(const std::string &src) {
+  std::string ext =
+      std::filesystem::path(src.substr(0, src.find_first_of("?#")))
+          .extension()
+          .string();
+
+  std::transform(ext.begin(), ext.end(), ext.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  return ext == ".mp4";
+}
 
 inline std::string excerpt_path(const std::string &body) {
   size_t at = body.find('@');

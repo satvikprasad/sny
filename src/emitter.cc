@@ -185,7 +185,8 @@ void put_note(const std::filesystem::path &p, const Universe &uv,
 
     if (node.kind == md::NodeKind::IntLink ||
         node.kind == md::NodeKind::ExtLink ||
-        node.kind == md::NodeKind::Image) {
+        node.kind == md::NodeKind::Image ||
+        node.kind == md::NodeKind::Video) {
       return resolve_href(node.text.to_str(n.source));
     }
 

@@ -99,6 +99,10 @@ inline md::Node node_from_detail(MD_SPANTYPE type, void *detail,
 
       if (in_source(src, d->src.text, d->src.size)) {
         node.text = str::Slice(src, d->src.text, d->src.size);
+
+        if (md::is_video_src(node.text.to_str(src))) {
+          node.kind = md::NodeKind::Video;
+        }
       }
 
       return node;

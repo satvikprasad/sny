@@ -30,6 +30,8 @@ NodeKind::Code -> <code>()</code>
 
 NodeKind::Image -> <img class="img" src="{{}}" alt="()">
 
+NodeKind::Video -> <video class="video" src="{{}}" controls preload="metadata">()</video>
+
 NodeKind::IntLink -> <a class="int-link" href="{{}}">()</a>
 
 NodeKind::ExtLink -> <a class="ext-link" href="{{}}">()</a>
@@ -154,7 +156,7 @@ NodeKind::Doc ->
 				font-size: 1em;
 				line-height: 1.45;
 			}
-			.img {
+			.img, .video {
 				display: block;
 				max-width: 100%;
 				height: auto;
